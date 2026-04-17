@@ -1,0 +1,390 @@
+/* ==========================================================================
+   Document print styles — A4 portrait, ~10pt base, matches KMT templates.
+   Shared base for all document types; doc-specific tweaks below.
+   ========================================================================== */
+
+.doc-sheet {
+  background: #fff;
+  color: #000;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 15mm 14mm;
+  font-family: "Helvetica Neue", Arial, "Hiragino Sans", sans-serif;
+  font-size: 10pt;
+  line-height: 1.35;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+}
+
+/* Landscape variants for wide tabular documents. */
+.doc-sheet--ec,
+.doc-sheet--pr {
+  width: 297mm;
+  min-height: 210mm;
+  padding: 12mm 12mm;
+}
+
+.doc-sheet * { box-sizing: border-box; }
+
+/* ---------- Common header (company info) ---------- */
+.doc-company {
+  text-align: center;
+  margin-bottom: 12px;
+}
+.doc-company__logo {
+  max-height: 50px;
+  max-width: 220px;
+  margin: 0 auto 6px;
+  display: block;
+}
+.doc-company__name {
+  font-size: 14pt;
+  font-weight: 700;
+  margin: 0 0 2px;
+}
+/* SI-specific logo placement (top-left of page) */
+.si-logo { margin-bottom: 8px; }
+.si-logo img { max-height: 40px; max-width: 200px; }
+.doc-company__address {
+  font-size: 9pt;
+  margin: 0;
+}
+
+.doc-title {
+  text-align: center;
+  font-size: 16pt;
+  font-weight: 700;
+  letter-spacing: .04em;
+  margin: 12px 0 16px;
+}
+
+/* ---------- Top info block (Sold to + Date / Ref) ---------- */
+.doc-topinfo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.doc-topinfo__party { display: grid; grid-template-columns: 70px 1fr; gap: 4px 8px; }
+.doc-topinfo__party dt { font-weight: 700; }
+.doc-topinfo__party dd { margin: 0; }
+.doc-topinfo__meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-self: start; }
+.doc-topinfo__meta dt { font-weight: 700; }
+.doc-topinfo__meta dd { margin: 0; }
+
+.doc-atten {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.doc-atten dt { font-weight: 700; }
+.doc-atten dd { margin: 0; }
+
+/* ---------- Item table ---------- */
+.doc-items {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1.5px solid #000;
+  margin-bottom: 10px;
+}
+.doc-items th, .doc-items td {
+  border: 1px solid #000;
+  padding: 6px 8px;
+  vertical-align: top;
+  font-size: 9.5pt;
+}
+.doc-items thead th {
+  background: #f3f4f6;
+  font-weight: 700;
+  text-align: left;
+}
+.doc-items__item { width: 90px; text-align: center; font-weight: 700; }
+.doc-items__qty { width: 50px; text-align: center; }
+.doc-items__amount { width: 120px; text-align: right; white-space: nowrap; }
+.doc-items__total-label { font-weight: 700; text-align: left; }
+.doc-items__total-amount { text-align: right; font-weight: 700; }
+
+/* Vehicle details inside description cell */
+.veh-spec {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 2px 10px;
+  margin-bottom: 4px;
+}
+.veh-spec dt { font-weight: 400; }
+.veh-spec dd { margin: 0; }
+.veh-bullets { margin: 4px 0 6px; padding-left: 0; list-style: none; }
+.veh-bullets li { padding-left: 10px; text-indent: -10px; }
+.veh-bullets li::before { content: "• "; }
+.veh-section-title { font-weight: 700; margin: 6px 0 2px; }
+
+/* ---------- Sub-blocks (Shipment / Terms / Bank) ---------- */
+.doc-block {
+  border: 1.5px solid #000;
+  margin-bottom: 10px;
+}
+.doc-block__head {
+  border-bottom: 1px solid #000;
+  padding: 4px 8px;
+  font-weight: 700;
+  font-size: 9.5pt;
+  display: flex;
+  justify-content: space-between;
+}
+.doc-block__body {
+  padding: 6px 8px;
+  font-size: 9.5pt;
+}
+.doc-kv {
+  display: grid;
+  grid-template-columns: 140px 1fr 140px 1fr;
+  gap: 2px 8px;
+}
+.doc-kv dt { font-weight: 400; }
+.doc-kv dd { margin: 0; }
+
+.doc-terms ol {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 9pt;
+  line-height: 1.4;
+}
+.doc-terms li { margin-bottom: 2px; }
+
+.doc-bank .doc-kv {
+  grid-template-columns: 120px 1fr;
+  gap: 3px 8px;
+}
+
+/* ---------- Signature area ---------- */
+.doc-signatures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  margin-top: 24px;
+  font-size: 9.5pt;
+}
+.doc-sig__line {
+  border-top: 1px solid #000;
+  padding-top: 4px;
+  min-height: 50px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.doc-sig__name { font-weight: 600; }
+.doc-sig__title { font-size: 9pt; color: #333; }
+
+/* ==========================================================================
+   Shipping Instruction specific — 4-column unified table matching the
+   KMT template: left 2 cols = party info, right 2 cols = shipment pairs.
+   ========================================================================== */
+.si-title {
+  font-size: 16pt;
+  font-weight: 700;
+  letter-spacing: .04em;
+  margin: 0 0 8px;
+}
+.si-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1.5px solid #000;
+  margin-bottom: 8px;
+  table-layout: fixed;
+}
+.si-table td {
+  border: 1px solid #000;
+  padding: 3px 6px;
+  font-size: 8.8pt;
+  vertical-align: top;
+  line-height: 1.25;
+  word-break: break-word;
+}
+.si-group {
+  font-weight: 700;
+  background: #f3f4f6;
+}
+.si-l-label {
+  color: #333;
+}
+.si-l-value {
+  font-weight: 600;
+}
+.si-l-span {
+  font-weight: 600;
+}
+.si-r-label {
+  background: #f7f7f7;
+  color: #333;
+  font-weight: 600;
+}
+.si-r-value {
+  font-weight: 600;
+}
+
+.si-items {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1.5px solid #000;
+  margin-bottom: 10px;
+  table-layout: fixed;
+}
+.si-items th, .si-items td {
+  border: 1px solid #000;
+  padding: 5px 6px;
+  font-size: 8.2pt;
+  vertical-align: top;
+  word-break: break-word;
+}
+.si-items thead th { background: #f3f4f6; font-weight: 700; font-size: 8.5pt; }
+/* Narrow all fixed columns so the Description of Goods column gets as much
+   horizontal space as possible, and make in-cell text slightly smaller. */
+.si-items__marks   { width: 58px;  text-align: center; font-weight: 700; }
+.si-items__qty     { width: 52px;  text-align: center; }
+.si-items__weight  { width: 55px;  text-align: right;  white-space: nowrap; }
+.si-items__measure { width: 85px;  text-align: right;  white-space: nowrap; }
+.si-items__term    { width: 40px;  text-align: center; }
+.si-items__total   { width: 85px;  text-align: right;  white-space: nowrap; font-weight: 700; }
+
+/* Compact vehicle-spec rendering inside the Description cell. */
+.si-items .veh-spec {
+  grid-template-columns: 120px 1fr;
+  gap: 1px 8px;
+  font-size: 8pt;
+  line-height: 1.3;
+  margin: 0;
+}
+.si-items .veh-spec dt { color: #444; }
+.si-items .veh-spec dd { font-weight: 600; }
+
+.si-bottom {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1.5px solid #000;
+}
+.si-bottom th, .si-bottom td {
+  border: 1px solid #000;
+  padding: 6px;
+  font-size: 9pt;
+}
+.si-bottom th { background: #f3f4f6; font-weight: 700; text-align: left; }
+.si-bottom__cell { min-height: 30px; height: 30px; vertical-align: top; }
+
+/* ==========================================================================
+   Export Certificate specific
+   ========================================================================== */
+.ec-topline {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  align-items: baseline;
+  margin-bottom: 10px;
+  font-size: 9pt;
+}
+.ec-title {
+  grid-column: 2;
+  justify-self: end;
+  font-size: 14pt;
+  font-weight: 700;
+  margin: 0;
+  grid-row: 1;
+}
+.ec-topline > div:nth-child(1) { grid-row: 1; }
+.ec-topline > div:nth-child(2) { grid-row: 2; }
+
+.ec-table, .ec-grid, .ec-schedule {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1.5px solid #000;
+  margin-bottom: 6px;
+}
+.ec-table th, .ec-table td,
+.ec-grid th, .ec-grid td,
+.ec-schedule th, .ec-schedule td {
+  border: 1px solid #000;
+  padding: 4px 6px;
+  font-size: 8.5pt;
+  vertical-align: top;
+}
+.ec-head { background: #f3f4f6; font-weight: 600; }
+.ec-val  { background: #fff; }
+.ec-grid th { background: #f3f4f6; font-weight: 600; font-size: 8pt; text-align: left; }
+.ec-grid td { text-align: left; }
+
+.ec-schedule th { background: #f3f4f6; width: 180px; text-align: left; }
+
+.ec-remarks {
+  border: 1.5px solid #000;
+  padding: 6px 8px;
+  font-size: 8.5pt;
+  margin-bottom: 12px;
+}
+.ec-remarks p { margin: 4px 0; }
+
+.ec-footer {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: 12px;
+  align-items: start;
+  font-size: 8.5pt;
+  margin-top: 14px;
+}
+.ec-footer__date { font-weight: 600; }
+
+/* ==========================================================================
+   Preserved Record specific
+   ========================================================================== */
+.pr-topline {
+  display: grid;
+  grid-template-columns: 1fr 2fr 1fr;
+  align-items: baseline;
+  margin-bottom: 10px;
+  font-size: 9pt;
+}
+.pr-title {
+  font-size: 13pt;
+  font-weight: 700;
+  margin: 0;
+  text-align: center;
+}
+.pr-pagenum { text-align: right; }
+
+.pr-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1.5px solid #000;
+  margin-bottom: 16px;
+}
+.pr-table th, .pr-table td {
+  border: 1px solid #000;
+  padding: 4px 6px;
+  font-size: 9pt;
+  vertical-align: top;
+  text-align: left;
+}
+.pr-table thead th { background: #f3f4f6; font-weight: 700; }
+.pr-val { font-weight: 400; }
+.pr-empty { text-align: center; color: #6b7280; padding: 14px; font-style: italic; }
+
+.pr-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9pt;
+  margin-top: 20px;
+  font-weight: 600;
+}
+
+/* ---------- Print-specific ---------- */
+/* @page orientation is injected dynamically by app.js before print, because
+   CSS does not allow @page inside a selector. We only set the shared rules. */
+@media print {
+  @page { margin: 0; }
+  html, body { background: #fff; }
+  body > *:not(.doc-preview) { display: none !important; }
+  .app-header, .app-tabs, .toolbar { display: none !important; }
+  .doc-preview { background: none !important; padding: 0 !important; display: block !important; }
+  .doc-sheet {
+    box-shadow: none;
+    margin: 0;
+    page-break-after: always;
+  }
+}

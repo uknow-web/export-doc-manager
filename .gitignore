@@ -1,0 +1,26 @@
+# Claude Code / editor metadata
+.claude/
+
+# OS-level
+.DS_Store
+Thumbs.db
+
+# Vercel
+.vercel/
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Node (not used yet, but safety)
+node_modules/
+npm-debug.log*
+
+# User's local DB backups / exports
+*.sqlite
+*.db
+export-docs-*.sqlite
+
+# Sample input files that shouldn't be part of the repo
+/*.pdf

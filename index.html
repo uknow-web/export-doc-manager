@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Export Document Management System</title>
+<link rel="stylesheet" href="css/app.css?v=11">
+<link rel="stylesheet" href="css/documents.css?v=11">
+</head>
+<body>
+
+<header class="app-header">
+  <h1>Export Document Management System</h1>
+  <div class="app-header__actions">
+    <button id="btn-help" class="btn btn--ghost" type="button">❓ ヘルプ</button>
+    <button id="btn-export-db" class="btn btn--ghost" type="button">DBエクスポート (.sqlite)</button>
+    <label class="btn btn--ghost">
+      DBインポート
+      <input id="file-import-db" type="file" accept=".sqlite,.db" hidden>
+    </label>
+    <div class="menu-wrap">
+      <button id="btn-csv-menu" class="btn btn--ghost" type="button">CSV ▾</button>
+      <div id="csv-menu" class="menu hidden">
+        <button data-csv-export="cases">案件をCSVエクスポート</button>
+        <button data-csv-export="parties">Party をCSVエクスポート</button>
+        <button data-csv-export="vehicle_models">車両モデルをCSVエクスポート</button>
+        <button data-csv-export="payments">入金明細をCSVエクスポート</button>
+        <button data-csv-export="costs">原価明細をCSVエクスポート</button>
+        <hr>
+        <label class="menu-file">
+          案件をCSVインポート
+          <input type="file" accept=".csv" data-csv-import="cases" hidden>
+        </label>
+        <label class="menu-file">
+          Party をCSVインポート
+          <input type="file" accept=".csv" data-csv-import="parties" hidden>
+        </label>
+        <label class="menu-file">
+          車両モデルをCSVインポート
+          <input type="file" accept=".csv" data-csv-import="vehicle_models" hidden>
+        </label>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="app-tabs">
+  <button class="tab active" data-tab="cases">案件一覧</button>
+  <button class="tab" data-tab="dashboard">ダッシュボード</button>
+  <button class="tab" data-tab="receivables">入金予定</button>
+  <button class="tab" data-tab="parties">Seller / Buyer 管理</button>
+  <button class="tab" data-tab="models">車両モデル管理</button>
+  <button class="tab" data-tab="editor">案件編集</button>
+  <button class="tab" data-tab="preview">書類プレビュー</button>
+  <button class="tab" data-tab="settings">設定</button>
+</nav>
+
+<main class="app-main">
+
+  <!-- =========================  CASES  ========================= -->
+  <section id="tab-cases" class="tab-pane active">
+    <div class="toolbar">
+      <button id="btn-new-case" class="btn btn--primary" type="button">+ 新規案件</button>
+      <input id="search-cases" class="input" type="search" placeholder="案件コード・シャシ番号で検索" style="max-width:280px">
+      <select id="filter-progress" class="input" style="max-width:200px">
+        <option value="all">進捗: すべて</option>
+      </select>
+      <select id="filter-payment" class="input" style="max-width:180px">
+        <option value="all">決済: すべて</option>
+      </select>
+      <button id="btn-filter-clear" class="btn btn--ghost" type="button">フィルタ解除</button>
+    </div>
+    <div id="cases-summary" class="stat-row">
+      <div class="stat-row__item">
+        <span class="stat-row__label">件数</span>
+        <span class="stat-row__value" id="sum-count">—</span>
+      </div>
+      <div class="stat-row__item">
+        <span class="stat-row__label">CIF合計</span>
+        <span class="stat-row__value" id="sum-amount">—</span>
+      </div>
+      <div class="stat-row__item">
+        <span class="stat-row__label">入金完了</span>
+        <span class="stat-row__value" id="sum-paid-count">—</span>
+      </div>
+      <div class="stat-row__item">
+        <span class="stat-row__label">入金済み金額</span>
+        <span class="stat-row__value" id="sum-paid-amount">—</span>
+      </div>
+      <div class="stat-row__item">
+        <span class="stat-row__label">未回収残高</span>
+        <span class="stat-row__value" id="sum-outstanding">—</span>
+      </div>
+      <div class="stat-row__item">
+        <span class="stat-row__label">粗利（CIF-原価）</span>
+        <span class="stat-row__value" id="sum-profit">—</span>
+      </div>
+    </div>
+    <table id="table-cases" class="data-table">
+      <thead>
+        <tr>
+          <th>Case Code</th>
+          <th>Invoice Ref No.</th>
+          <th>Vehicle</th>
+          <th>Chassis No.</th>
+          <th>Amount</th>
+          <th>ETD</th>
+          <th>進捗</th>
+          <th>決済</th>
+          <th>アクション</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- =========================  PARTIES  ========================= -->
+  <section id="tab-parties" class="tab-pane">
+    <div class="toolbar">
+      <select id="parties-role-filter" class="input">
+        <option value="all">すべて</option>
+        <option value="seller">Seller のみ</option>
+        <option value="buyer">Buyer のみ</option>
+        <option value="notify">Notify のみ</option>
+      </select>
+      <button id="btn-new-party" class="btn btn--primary" type="button">+ 新規Party</button>
+    </div>
+    <div id="party-editor" class="panel hidden">
+      <h3 id="party-editor-title">Party編集</h3>
+      <form id="form-party" class="form-grid">
+        <input type="hidden" name="id">
+        <label>Role
+          <select name="role" required>
+            <option value="seller">Seller（輸出者）</option>
+            <option value="buyer">Buyer（輸入者）</option>
+            <option value="notify">Notify Party（通知先）</option>
+          </select>
+        </label>
+        <label>Company Name <input name="company_name" required></label>
+        <label class="span-2">Address <textarea name="address" rows="2"></textarea></label>
+        <label>TEL <input name="tel"></label>
+        <label>Email <input name="email" type="email"></label>
+        <label>Attn Name <input name="attn_name"></label>
+        <label>Attn TEL <input name="attn_tel"></label>
+        <fieldset class="span-2">
+          <legend>Bank Details (Sellerの場合のみ)</legend>
+          <div class="form-grid">
+            <label>Bank Name <input name="bank_name"></label>
+            <label>Branch Name <input name="bank_branch"></label>
+            <label class="span-2">Bank Address <input name="bank_address"></label>
+            <label>Branch Code <input name="bank_branch_code"></label>
+            <label>Account No. <input name="bank_account_no"></label>
+            <label>Account Name <input name="bank_account_name"></label>
+            <label>Swift Code <input name="bank_swift"></label>
+          </div>
+        </fieldset>
+        <div class="form-actions span-2">
+          <button type="submit" class="btn btn--primary">保存</button>
+          <button type="button" class="btn btn--ghost" id="btn-party-cancel">キャンセル</button>
+          <button type="button" class="btn btn--danger" id="btn-party-delete">削除</button>
+        </div>
+      </form>
+    </div>
+    <table id="table-parties" class="data-table">
+      <thead>
+        <tr>
+          <th>Role</th>
+          <th>Company</th>
+          <th>Address</th>
+          <th>TEL</th>
+          <th>アクション</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- =========================  DASHBOARD  ========================= -->
+  <section id="tab-dashboard" class="tab-pane">
+
+    <!-- ①今月のサマリー + 今日やること -->
+    <div class="dash-top">
+      <div class="dash-today-panel">
+        <div class="dash-today-panel__head">
+          <h2 id="dash-today-title">今月のサマリー</h2>
+          <div class="dash-today-panel__sub" id="dash-today-sub"></div>
+        </div>
+        <div class="dash-kpi-grid" id="dash-month-kpis"></div>
+      </div>
+      <div class="dash-today-list">
+        <div class="panel">
+          <h3>今日やること</h3>
+          <div id="dash-today-tasks"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ②月次推移 -->
+    <div class="panel dash-monthly">
+      <div class="dash-monthly__head">
+        <h3>月次推移</h3>
+        <div class="dash-monthly__tabs">
+          <button class="chip chip--active" data-metric="amount">売上金額</button>
+          <button class="chip" data-metric="count">案件数</button>
+          <button class="chip" data-metric="profit">粗利</button>
+          <button class="chip" data-metric="margin">粗利率</button>
+          <button class="chip" data-metric="new_cases">新規案件</button>
+          <button class="chip" data-metric="velocity">入金速度</button>
+        </div>
+        <div class="dash-monthly__range">
+          <select id="dash-months-range" class="input" style="max-width:120px">
+            <option value="6">過去6ヶ月</option>
+            <option value="12" selected>過去12ヶ月</option>
+            <option value="24">過去24ヶ月</option>
+          </select>
+        </div>
+      </div>
+      <div id="dash-monthly-chart" class="dash-monthly__chart"></div>
+      <div id="dash-monthly-hint" class="dash-monthly__hint"></div>
+    </div>
+
+    <!-- ③出荷カンバンボード -->
+    <div class="panel">
+      <div class="dash-monthly__head">
+        <h3>出荷カンバンボード</h3>
+        <div class="dash-monthly__range">
+          <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#6b7280">
+            <input type="checkbox" id="dash-kanban-hide-done"> 完了/キャンセルを隠す
+          </label>
+        </div>
+      </div>
+      <div id="dash-kanban" class="kanban"></div>
+    </div>
+
+    <!-- ④内訳チャート群 -->
+    <div class="dash-grid">
+      <div class="panel"><h3>得意先別 売上</h3><div id="dash-buyer-chart" class="bar-chart"></div></div>
+      <div class="panel"><h3>車種別 売上</h3><div id="dash-model-chart" class="bar-chart"></div></div>
+      <div class="panel"><h3>決済ステータス内訳</h3><div id="dash-payment-chart" class="bar-chart"></div></div>
+      <div class="panel"><h3>進捗ステータス内訳</h3><div id="dash-progress-chart" class="bar-chart"></div></div>
+    </div>
+  </section>
+
+  <!-- =========================  RECEIVABLES  ========================= -->
+  <section id="tab-receivables" class="tab-pane">
+    <div class="toolbar">
+      <select id="rcv-filter" class="input" style="max-width:220px">
+        <option value="upcoming">期日前（7日以内）</option>
+        <option value="overdue">期日超過</option>
+        <option value="all">すべての未完了</option>
+      </select>
+      <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:#6b7280">
+        期日範囲（日）
+        <input id="rcv-days" type="number" class="input" value="7" min="1" max="90" style="max-width:80px">
+      </label>
+    </div>
+    <div class="stat-row" id="rcv-summary"></div>
+    <table class="data-table" id="table-receivables">
+      <thead>
+        <tr>
+          <th>Case Code</th>
+          <th>Buyer</th>
+          <th>Due Date</th>
+          <th>請求額</th>
+          <th>入金済み</th>
+          <th>残高</th>
+          <th>状態</th>
+          <th>アクション</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- =========================  VEHICLE MODELS  ========================= -->
+  <section id="tab-models" class="tab-pane">
+    <div class="toolbar">
+      <button id="btn-new-model" class="btn btn--primary" type="button">+ 新規モデル</button>
+      <span class="hint">Maker / Model Code / HS / Specification など、車種共通で繰り返し使う情報を登録します。案件編集で選択すると自動入力されます。</span>
+    </div>
+    <div id="model-editor" class="panel hidden">
+      <h3 id="model-editor-title">車両モデル編集</h3>
+      <form id="form-model" class="form-grid">
+        <input type="hidden" name="id">
+        <label>Maker <input name="maker" placeholder="TOYOTA" required></label>
+        <label>Model Name <input name="model_name" placeholder="ALPHARD Z" required></label>
+        <label>Model Code <input name="model_code" placeholder="3BA-AGH40W"></label>
+        <label>Fuel <input name="fuel" placeholder="PETROL"></label>
+        <label>Engine Capacity <input name="engine_capacity" placeholder="2500CC"></label>
+        <label>Displacement (CC) <input name="displacement_cc" placeholder="2500"></label>
+        <label>Weight (kg) <input name="weight_kg" placeholder="2465"></label>
+        <label>Measurement (M3) <input name="measurement_m3" placeholder="17.88"></label>
+        <label>HS Code <input name="hs_code" placeholder="8703 23"></label>
+        <label class="span-2">標準 Specification（箇条書き、1行1項目）
+          <textarea name="specification" rows="6" placeholder="• Right and left independent moon roof.&#10;• Genuine 13.2 inch OEL rear seat display."></textarea>
+        </label>
+        <label class="span-2">Note（内部メモ・書類には出ません）
+          <textarea name="note" rows="2"></textarea>
+        </label>
+        <div class="form-actions span-2">
+          <button type="submit" class="btn btn--primary">保存</button>
+          <button type="button" class="btn btn--ghost" id="btn-model-cancel">キャンセル</button>
+          <button type="button" class="btn btn--danger" id="btn-model-delete">削除</button>
+        </div>
+      </form>
+    </div>
+    <table id="table-models" class="data-table">
+      <thead>
+        <tr>
+          <th>Maker</th>
+          <th>Model Name</th>
+          <th>Model Code</th>
+          <th>Engine</th>
+          <th>HS Code</th>
+          <th>アクション</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <!-- =========================  CASE EDITOR  ========================= -->
+  <section id="tab-editor" class="tab-pane">
+    <form id="form-case" class="panel">
+      <input type="hidden" name="id">
+
+      <!-- Sub-tab navigation (editor panes) -->
+      <nav class="editor-tabs" id="editor-tabs">
+        <button type="button" class="editor-tab editor-tab--active" data-editor-tab="case-info">案件情報</button>
+        <button type="button" class="editor-tab" data-editor-tab="vehicle-info">車両情報</button>
+        <button type="button" class="editor-tab" data-editor-tab="shipment">船積条件</button>
+        <button type="button" class="editor-tab" data-editor-tab="si-info">Shipping Instruction 情報</button>
+        <button type="button" class="editor-tab" data-editor-tab="export-cert">Export Certificate / Preserved Record 情報</button>
+        <button type="button" class="editor-tab" data-editor-tab="reg-events">登録履歴</button>
+        <button type="button" class="editor-tab" data-editor-tab="payments">入金明細</button>
+        <button type="button" class="editor-tab" data-editor-tab="costs">原価明細</button>
+        <button type="button" class="editor-tab" data-editor-tab="photos">写真</button>
+        <button type="button" class="editor-tab" data-editor-tab="doc-settings">書類ごとの Buyer / 条件</button>
+      </nav>
+
+      <div class="editor-pane editor-pane--active" data-editor-pane="case-info">
+      <h2>案件情報</h2>
+      <div class="form-grid">
+        <label>Case Code (Marks) <input name="case_code" placeholder="RAYA_003" required></label>
+        <label>Invoice Ref No. <input name="invoice_ref_no" placeholder="MA_20250918_002"></label>
+        <label>Invoice Date <input name="invoice_date" type="date"></label>
+        <label>Payment Due Date <input name="payment_due_date" type="date"></label>
+        <label>Seller
+          <select name="seller_id" required></select>
+        </label>
+        <label>Qty <input name="qty" type="number" value="1" min="1"></label>
+      </div>
+
+      <h2>ステータス</h2>
+      <div class="form-grid">
+        <label>進捗ステータス
+          <select name="progress_status" id="case-progress-status"></select>
+        </label>
+        <label>決済ステータス
+          <select name="payment_status" id="case-payment-status"></select>
+        </label>
+        <label class="span-2">メモ（ステータスに関する補足）
+          <textarea name="status_note" rows="2" placeholder="例: 一部入金 500万円（2025-10-01）、残金は船積後"></textarea>
+        </label>
+      </div>
+
+      </div><!-- /editor-pane case-info -->
+
+      <div class="editor-pane" data-editor-pane="vehicle-info">
+      <h2>車両情報</h2>
+      <div class="form-grid">
+        <label class="span-2">車両モデル（マスター）
+          <div style="display:flex;gap:8px;align-items:center">
+            <select name="vehicle_model_id" id="case-vehicle-model" style="flex:1"></select>
+            <button type="button" class="btn" id="btn-apply-model">このモデルを適用</button>
+            <a class="btn btn--ghost" href="#" id="link-manage-models">モデル管理へ</a>
+          </div>
+          <small class="hint" style="margin-top:2px">モデルを選択して「適用」を押すと、共通項目（Maker / Model Code / Specification 等）が自動入力されます。個体差は適用後に編集してください。</small>
+        </label>
+        <label>Description <input name="description" value="USED VEHICLE"></label>
+        <label>Maker <input name="maker" placeholder="TOYOTA"></label>
+        <label>Model Name <input name="model_name" placeholder="ALPHARD Z"></label>
+        <label>Year / Month <input name="year_month" placeholder="08 / 2024"></label>
+        <label>Model Code <input name="model_code" placeholder="3BA-AGH40W"></label>
+        <label>Chassis No. <input name="chassis_no" placeholder="AGH40 - 0023677"></label>
+        <label>Engine No. <input name="engine_no" placeholder="2AR 2940611"></label>
+        <label>Engine Capacity <input name="engine_capacity" placeholder="2500CC"></label>
+        <label>Displacement (CC) <input name="displacement_cc" placeholder="2500"></label>
+        <label>Mileage <input name="mileage" placeholder="12,251KM"></label>
+        <label>Exterior Color <input name="exterior_color" placeholder="GOLD"></label>
+        <label>Fuel <input name="fuel" placeholder="PETROL"></label>
+        <label>Auction Grade <input name="auction_grade" placeholder="4.5"></label>
+        <label>Weight (kg) <input name="weight_kg" placeholder="2465"></label>
+        <label>Measurement (M3) <input name="measurement_m3" placeholder="17.88"></label>
+        <label>HS Code <input name="hs_code" placeholder="8703 23"></label>
+        <label class="span-2">Specification（箇条書き、1行1項目）
+          <textarea name="specification" rows="5" placeholder="• Right and left independent moon roof.&#10;• Genuine 13.2 inch OEL rear seat display."></textarea>
+        </label>
+        <label class="span-2">Remark（箇条書き、1行1項目）
+          <textarea name="remark" rows="6" placeholder="• Modelista Aero＆Muffler&#10;• Advanced Park + PSB + Advanced Drive."></textarea>
+        </label>
+        <label>CIF Amount (JPY) <input name="amount_jpy" type="number" placeholder="6645000"></label>
+      </div>
+
+      </div><!-- /editor-pane vehicle-info -->
+
+      <div class="editor-pane" data-editor-pane="shipment">
+      <h2>船積条件 (Shipment Condition)</h2>
+      <div class="form-grid">
+        <label>Vessel Name <input name="vessel_name" placeholder="ASIAN EXPLORER"></label>
+        <label>Voyage No. <input name="voyage_no" placeholder="V.69"></label>
+        <label>ETD <input name="etd" type="date"></label>
+        <label>ETA <input name="eta" type="date"></label>
+        <label>Port of Loading <input name="port_of_loading" placeholder="NAGOYA, JAPAN"></label>
+        <label>Port of Discharge <input name="port_of_discharge" placeholder="NORTH PORT, PORT KELANG, MALAYSIA"></label>
+        <label>Place of Delivery <input name="place_of_delivery"></label>
+        <label>Type of Service <input name="type_of_service" value="RO/RO"></label>
+        <label>Delivery Term <input name="delivery_term" value="CIF"></label>
+      </div>
+
+      </div><!-- /editor-pane shipment -->
+
+      <div class="editor-pane" data-editor-pane="si-info">
+      <h2>Shipping Instruction 情報</h2>
+      <div class="form-grid">
+        <label>Shipping Company <input name="shipping_company" placeholder="TOYOFUJI"></label>
+        <label>Booking No. <input name="booking_no"></label>
+        <label>Volume <input name="volume" placeholder="1 UNIT"></label>
+        <label>Freight <input name="freight_term" placeholder="PREPAID"></label>
+        <label>Place of Receipt <input name="place_of_receipt"></label>
+        <label>Place of Issue <input name="place_of_issue" placeholder="OSAKA, JAPAN"></label>
+        <label>No. of Original B/L <input name="no_of_original_bl" placeholder="THREE"></label>
+        <label>Cut Date <input name="cut_date" type="date"></label>
+        <label>Local Vessel <input name="local_vessel"></label>
+        <label>Local Voyage No. <input name="local_voyage_no"></label>
+        <label>Booked by <input name="booked_by" placeholder="AUTO GRAND"></label>
+        <label>Forwarder <input name="forwarder" placeholder="AUTO GRAND"></label>
+        <label>Notify Party
+          <select name="notify_party_id"></select>
+        </label>
+        <label>搬入先 <input name="warehouse_name"></label>
+        <label>搬入予定日 <input name="warehouse_date" type="date"></label>
+        <label class="span-2">備考（追加依頼）
+          <textarea name="shipping_instruction_note" rows="2" placeholder="・写真を追加装備品など全てで撮影してください。"></textarea>
+        </label>
+      </div>
+
+      </div><!-- /editor-pane si-info -->
+
+      <div class="editor-pane" data-editor-pane="export-cert">
+      <h2>Export Certificate / Preserved Record 情報</h2>
+      <p class="hint">官公庁様式の書類用フィールドです。車検証・輸出抹消仮登録証明書の内容を転記してください。</p>
+      <div class="toolbar" style="margin-bottom:10px">
+        <label class="btn btn--primary">
+          📄 車検証/輸出抹消証明書をアップロード
+          <input type="file" id="file-cert-import" accept=".pdf,image/*" hidden>
+        </label>
+        <span class="hint" style="margin:0">PDFまたは写真から項目を自動抽出します。</span>
+      </div>
+      <div class="form-grid">
+        <label>Export Cert No. <input name="export_cert_no" placeholder="00357"></label>
+        <label>Preserve Record No. <input name="preserve_record_no" placeholder="02228"></label>
+        <label>Reference No. <input name="reference_no" placeholder="3621023291154463"></label>
+        <label>Registration No. <input name="registration_no" placeholder="KYOTO 329 SA 5446"></label>
+        <label>Registration Date <input name="registration_date" type="date"></label>
+        <label>First Reg. Date <input name="first_reg_date" placeholder="AUGUST / 2024"></label>
+        <label>Previous Reg. No. <input name="previous_reg_no" placeholder="HIROSHIMA 356 SU 1115"></label>
+        <label>Export Scheduled Date <input name="export_scheduled_date" type="date"></label>
+        <label>Owner Code <input name="owner_code" placeholder="26009 4800"></label>
+        <label>Maker Code <input name="maker_code" placeholder="194"></label>
+        <label>Engine Model <input name="engine_model" placeholder="2 AR"></label>
+        <label>Vehicle Use <input name="vehicle_use" value="Passenger"></label>
+        <label>Vehicle Purpose <input name="vehicle_purpose" value="Private"></label>
+        <label>Body Type <input name="body_type" placeholder="Station Wagon"></label>
+        <label>Classification Body No. <input name="classification_body_no" placeholder="003"></label>
+        <label>Classification Vehicle <input name="classification_vehicle" value="Standard"></label>
+        <label>Fixed Number <input name="fixed_number" placeholder="7"></label>
+        <label>Max Carry Weight (kg) <input name="max_carry_weight"></label>
+        <label>Gross Weight (kg) <input name="gross_weight" placeholder="2465"></label>
+        <label>Spec No. <input name="spec_no" placeholder="20710"></label>
+        <label>Classification No. <input name="classification_no" placeholder="0009"></label>
+        <label>Fuel Classification <input name="fuel_classification_spec" placeholder="2.49L"></label>
+        <label>Length (cm) <input name="length_cm" placeholder="499"></label>
+        <label>Width (cm) <input name="width_cm" placeholder="185"></label>
+        <label>Height (cm) <input name="height_cm" placeholder="193"></label>
+        <label>FF Weight (kg) <input name="ff_weight" placeholder="1130"></label>
+        <label>FR Weight (kg) <input name="fr_weight"></label>
+        <label>RF Weight (kg) <input name="rf_weight"></label>
+        <label>RR Weight (kg) <input name="rr_weight" placeholder="950"></label>
+        <label class="span-2">Issuer Title <input name="issuer_title" placeholder="Director of the Kyoto Transport Bureau Office"></label>
+      </div>
+
+      </div><!-- /editor-pane export-cert -->
+
+      <div class="editor-pane" data-editor-pane="reg-events">
+      <h2>登録履歴（Preserved Record 用イベント）</h2>
+      <p class="hint">古い順に登録します。New Registration → Transfer of Ownership → Provisional Deregistration for Export の3件が典型です。</p>
+      <div id="reg-events"></div>
+      <button type="button" class="btn" id="btn-add-reg-event">+ 登録イベントを追加</button>
+
+      </div><!-- /editor-pane reg-events -->
+
+      <div class="editor-pane" data-editor-pane="payments">
+      <h2>入金明細</h2>
+      <p class="hint">入金ごとに1行追加してください。合計額が請求額に達すると決済ステータスが自動的に「入金完了」になります。</p>
+      <div id="payments-summary" class="stat-row" style="margin:8px 0"></div>
+      <table class="data-table" id="table-payments" style="margin-bottom:8px">
+        <thead>
+          <tr><th>入金日</th><th>金額</th><th>方法</th><th>参照No</th><th>メモ</th><th>操作</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="form-grid" id="new-payment-row" style="background:#f9fafb;padding:10px;border-radius:6px">
+        <label>入金日 <input data-new-pay="payment_date" type="date"></label>
+        <label>金額 (JPY) <input data-new-pay="amount_jpy" type="number"></label>
+        <label>方法
+          <select data-new-pay="method">
+            <option value="">—</option>
+            <option value="銀行振込">銀行振込</option>
+            <option value="LC">LC（信用状）</option>
+            <option value="手形">手形</option>
+            <option value="Other">その他</option>
+          </select>
+        </label>
+        <label>参照No <input data-new-pay="reference_no" placeholder="送金番号など"></label>
+        <label class="span-2">メモ <input data-new-pay="note"></label>
+        <div class="form-actions span-2">
+          <button type="button" class="btn btn--primary" id="btn-add-payment">入金を追加</button>
+        </div>
+      </div>
+
+      </div><!-- /editor-pane payments -->
+
+      <div class="editor-pane" data-editor-pane="costs">
+      <h2>原価明細（コスト）</h2>
+      <p class="hint">仕入・オークション手数料・輸送費・通関費などを記録すると粗利が自動算出されます。</p>
+      <div id="costs-summary" class="stat-row" style="margin:8px 0"></div>
+      <table class="data-table" id="table-costs" style="margin-bottom:8px">
+        <thead>
+          <tr><th>計上日</th><th>区分</th><th>金額</th><th>取引先</th><th>メモ</th><th>操作</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="form-grid" id="new-cost-row" style="background:#f9fafb;padding:10px;border-radius:6px">
+        <label>計上日 <input data-new-cost="cost_date" type="date"></label>
+        <label>区分
+          <select data-new-cost="cost_type">
+            <option value="">—</option>
+            <option value="仕入">仕入</option>
+            <option value="オークション手数料">オークション手数料</option>
+            <option value="輸送費">輸送費</option>
+            <option value="通関費">通関費</option>
+            <option value="保険料">保険料</option>
+            <option value="海上運賃">海上運賃</option>
+            <option value="陸送費">陸送費</option>
+            <option value="検査費">検査費</option>
+            <option value="その他">その他</option>
+          </select>
+        </label>
+        <label>金額 (JPY) <input data-new-cost="amount_jpy" type="number"></label>
+        <label>取引先 <input data-new-cost="vendor"></label>
+        <label class="span-2">メモ <input data-new-cost="note"></label>
+        <div class="form-actions span-2">
+          <button type="button" class="btn btn--primary" id="btn-add-cost">コストを追加</button>
+        </div>
+      </div>
+
+      </div><!-- /editor-pane costs -->
+
+      <div class="editor-pane" data-editor-pane="photos">
+      <h2>写真</h2>
+      <p class="hint">車両の写真を複数枚アップロード。ドラッグ&ドロップ可。クリックで拡大表示、マウスオーバーで削除ボタン表示。</p>
+      <div class="photo-album" id="editor-photo-album"></div>
+      </div><!-- /editor-pane photos -->
+
+      <div class="editor-pane" data-editor-pane="doc-settings">
+      <h2>書類ごとの Buyer / 条件</h2>
+      <p class="hint">書類タイプごとに異なるBuyerを指定できます。未指定の書類はスキップされます。</p>
+      <div id="doc-settings"></div>
+      </div><!-- /editor-pane doc-settings -->
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">保存</button>
+        <button type="button" class="btn btn--ghost" id="btn-case-cancel">キャンセル</button>
+        <button type="button" class="btn btn--danger hidden" id="btn-case-delete">この案件を削除</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- =========================  SETTINGS  ========================= -->
+  <section id="tab-settings" class="tab-pane">
+    <nav class="editor-tabs" id="settings-tabs" style="margin:0 0 16px">
+      <button type="button" class="editor-tab editor-tab--active" data-settings-tab="numbering">自動採番</button>
+      <button type="button" class="editor-tab" data-settings-tab="template">書類テンプレート</button>
+      <button type="button" class="editor-tab" data-settings-tab="reminders">リマインダー</button>
+    </nav>
+
+    <!-- 自動採番 -->
+    <div class="settings-pane settings-pane--active" data-settings-pane="numbering">
+      <div class="panel">
+        <h2>Case Code 自動採番</h2>
+        <p class="hint">新規案件作成時に Case Code を自動生成するパターン。空欄の場合は自動採番しません。</p>
+        <div class="form-grid">
+          <label>パターン
+            <input id="setting-case-code-pattern" placeholder="RAYA_{###}">
+          </label>
+          <label>次回の採番プレビュー
+            <input id="setting-case-code-preview" readonly style="background:#f9fafb">
+          </label>
+        </div>
+        <div style="padding:12px;background:#f9fafb;border-radius:6px;font-size:12px;line-height:1.6;margin-top:10px">
+          <strong>使えるプレースホルダー:</strong><br>
+          <code>{###}</code> / <code>{####}</code> — 連番（桁数指定、ゼロ埋め）<br>
+          <code>{YYYY}</code> — 西暦4桁、<code>{YY}</code> — 西暦2桁<br>
+          <code>{MM}</code> — 月、<code>{DD}</code> — 日<br>
+          <strong>例:</strong> <code>RAYA_{###}</code> → RAYA_001、<code>{YY}{MM}-{##}</code> → 2510-01
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Invoice Ref No 自動採番</h2>
+        <p class="hint">新規案件作成時に Invoice Ref No を自動生成するパターン。</p>
+        <div class="form-grid">
+          <label>パターン
+            <input id="setting-invoice-ref-pattern" placeholder="MA_{YYYY}{MM}{DD}_{###}">
+          </label>
+          <label>次回の採番プレビュー
+            <input id="setting-invoice-ref-preview" readonly style="background:#f9fafb">
+          </label>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn--primary" id="btn-save-numbering">採番設定を保存</button>
+      </div>
+    </div>
+
+    <!-- テンプレート -->
+    <div class="settings-pane" data-settings-pane="template">
+      <div class="panel">
+        <h2>会社ロゴ</h2>
+        <p class="hint">書類の社名の上に表示されます。PNG/JPG/SVG形式、推奨幅300px。</p>
+        <div style="display:flex;gap:16px;align-items:center">
+          <img id="setting-logo-preview" src="" style="max-height:80px;max-width:240px;display:none;border:1px solid #e5e7eb;padding:4px;background:#fff">
+          <div id="setting-logo-empty" style="padding:16px 24px;border:2px dashed #d1d5db;color:#9ca3af;border-radius:6px;font-size:12px">ロゴ未設定</div>
+          <div>
+            <label class="btn btn--primary">
+              ロゴをアップロード
+              <input type="file" id="setting-logo-file" accept="image/*" hidden>
+            </label>
+            <button type="button" class="btn btn--danger" id="btn-logo-remove" style="margin-left:6px">削除</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>署名者情報</h2>
+        <p class="hint">書類のフッターに表示される署名者名・肩書です。</p>
+        <div class="form-grid">
+          <label>署名者名 <input id="setting-signer-name" placeholder="MAKOTO Kubota"></label>
+          <label>肩書 <input id="setting-signer-title" placeholder="Managing Director"></label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>定型文カスタマイズ</h2>
+        <p class="hint">書類に印字される条項・注記を編集できます。空欄でデフォルト値を使用。</p>
+        <div class="form-grid">
+          <label class="span-2">Sales Confirmation / Invoice の追加注記
+            <textarea id="setting-extra-note-invoice" rows="2" placeholder="追加で書類に印字したい注記"></textarea>
+          </label>
+          <label class="span-2">Shipping Instruction の追加注記
+            <textarea id="setting-extra-note-si" rows="2"></textarea>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn--primary" id="btn-save-template">テンプレート設定を保存</button>
+      </div>
+    </div>
+
+    <!-- リマインダー -->
+    <div class="settings-pane" data-settings-pane="reminders">
+      <div class="panel">
+        <h2>ブラウザ通知</h2>
+        <p class="hint">船積予定・入金期日が近づいたときにブラウザ通知でお知らせします。</p>
+        <div class="form-grid">
+          <label>通知を有効にする
+            <select id="setting-reminders-enabled">
+              <option value="true">有効</option>
+              <option value="false">無効</option>
+            </select>
+          </label>
+          <label>通知する猶予日数
+            <input id="setting-reminders-days" type="number" min="0" max="30" value="3">
+          </label>
+          <label>権限ステータス
+            <input id="setting-reminders-permission" readonly style="background:#f9fafb">
+          </label>
+          <label>チェック頻度（分）
+            <input id="setting-reminders-interval" type="number" min="5" max="1440" value="60">
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" id="btn-request-permission">通知許可をリクエスト</button>
+          <button type="button" class="btn" id="btn-test-notification">テスト通知</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>メール下書き</h2>
+        <p class="hint">案件の書類プレビュー画面から、Buyer宛のメール下書きを生成できます。</p>
+        <div class="form-grid">
+          <label>差出人（From）<input id="setting-mail-from" placeholder="info@kmt.kyoto"></label>
+          <label>件名テンプレート
+            <input id="setting-mail-subject" placeholder="Re: {case_code} — Documents">
+          </label>
+          <label class="span-2">本文テンプレート
+            <textarea id="setting-mail-body" rows="6" placeholder="Dear {buyer_name},&#10;&#10;Please find attached the shipping documents for {case_code}.&#10;&#10;Best regards,&#10;{signer_name}"></textarea>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="button" class="btn btn--primary" id="btn-save-reminders">リマインダー設定を保存</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- =========================  PREVIEW  ========================= -->
+  <section id="tab-preview" class="tab-pane">
+    <div class="toolbar">
+      <select id="preview-case" class="input"></select>
+      <select id="preview-doc" class="input">
+        <option value="sales_confirmation">Sales Confirmation</option>
+        <option value="invoice">Invoice</option>
+        <option value="shipping_instruction">Shipping Instruction</option>
+        <option value="export_certificate">Export Certificate</option>
+        <option value="preserved_record">Preserved Record</option>
+      </select>
+      <button id="btn-preview-render" class="btn btn--primary" type="button">表示</button>
+      <button id="btn-preview-print" class="btn" type="button">印刷 / PDF出力</button>
+      <button id="btn-preview-bulk" class="btn" type="button">一括発行 (HTML+ZIP)</button>
+      <button id="btn-preview-mail" class="btn" type="button">📧 メール下書き</button>
+      <button id="btn-preview-log" class="btn btn--ghost" type="button">発行履歴</button>
+    </div>
+    <div id="doc-preview" class="doc-preview"></div>
+    <div id="doc-issue-log" class="panel hidden" style="margin-top:16px"></div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- Case detail view modal -->
+<div id="detail-modal" class="modal hidden">
+  <div class="modal__backdrop" data-detail-close></div>
+  <div class="modal__panel detail-modal">
+    <div class="modal__head detail-head">
+      <div class="detail-head__title">
+        <h3 id="detail-case-code">案件詳細</h3>
+        <div class="detail-head__meta" id="detail-head-meta"></div>
+      </div>
+      <div class="detail-head__actions">
+        <button type="button" class="btn" id="btn-detail-print">🖨 印刷</button>
+        <button type="button" class="btn btn--primary" id="btn-detail-edit">編集</button>
+        <button type="button" class="modal__close" data-detail-close>×</button>
+      </div>
+    </div>
+    <div class="detail-body" id="detail-body"></div>
+  </div>
+</div>
+
+<!-- Print-issue validation modal -->
+<div id="validate-modal" class="modal hidden">
+  <div class="modal__backdrop" data-validate-close></div>
+  <div class="modal__panel" style="width:min(600px,94vw)">
+    <div class="modal__head">
+      <h3>⚠️ 発行前チェック</h3>
+      <button type="button" class="modal__close" data-validate-close>×</button>
+    </div>
+    <div style="padding:20px">
+      <p id="validate-intro" style="margin:0 0 12px;color:#374151"></p>
+      <div id="validate-issues"></div>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" data-validate-close>編集に戻る</button>
+      <button type="button" class="btn btn--primary" id="btn-validate-proceed">それでも発行する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Help / Manual modal -->
+<div id="help-modal" class="modal hidden">
+  <div class="modal__backdrop" data-help-close></div>
+  <div class="modal__panel help-modal">
+    <div class="modal__head">
+      <h3>❓ ヘルプ / マニュアル</h3>
+      <button type="button" class="modal__close" data-help-close>×</button>
+    </div>
+    <div class="help-body">
+      <aside class="help-nav">
+        <input id="help-search" type="search" placeholder="🔍 キーワードで検索" class="input">
+        <ul id="help-nav-list"></ul>
+      </aside>
+      <article class="help-content" id="help-content"></article>
+    </div>
+  </div>
+</div>
+
+<!-- Certificate import modal -->
+<div id="cert-modal" class="modal hidden">
+  <div class="modal__backdrop"></div>
+  <div class="modal__panel">
+    <div class="modal__head">
+      <h3>車検証 / 輸出抹消仮登録証明書の読み取り結果</h3>
+      <button type="button" class="modal__close" id="btn-cert-close">×</button>
+    </div>
+    <div id="cert-progress" class="cert-progress"></div>
+    <div id="cert-results" class="cert-results hidden">
+      <p class="hint">チェックを付けた項目のみフォームに反映されます。値は編集可能です。</p>
+      <div id="cert-qr-info" class="cert-qr-info hidden"></div>
+      <table class="data-table cert-fields">
+        <thead>
+          <tr>
+            <th style="width:32px"><input type="checkbox" id="cert-check-all" checked></th>
+            <th>項目</th>
+            <th>抽出された値</th>
+            <th>元のテキスト（参考）</th>
+          </tr>
+        </thead>
+        <tbody id="cert-fields-body"></tbody>
+      </table>
+      <details class="cert-raw">
+        <summary>抽出された全テキストを表示（デバッグ用）</summary>
+        <pre id="cert-raw-text"></pre>
+      </details>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" id="btn-cert-cancel">キャンセル</button>
+      <button type="button" class="btn btn--primary hidden" id="btn-cert-apply">選択した項目をフォームに反映</button>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/sql-wasm.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
