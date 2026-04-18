@@ -31,6 +31,19 @@ import { renderPreservedRecord } from './docs/preserved-record.js';
 import { importCertFile } from './cert-import.js';
 import { FIELD_LABELS as CERT_FIELD_LABELS } from './cert-parser.js';
 import { HELP_SECTIONS } from './help-content.js';
+import {
+  needsInitialSetup, createInitialAdmin,
+  login as authLogin, logout as authLogout,
+  getCurrentUser, getSession,
+  hashPassword, verifyPassword, changePassword,
+  canEdit, canManageUsers, canViewAudit, canSeeAmounts,
+  ROLES, roleLabel,
+} from './auth.js';
+import {
+  createUser as dbCreateUser, updateUser as dbUpdateUser,
+  deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
+  getUserByUsername, appendAuditLog, listAuditLog,
+} from './db.js';
 
 // Supported document types. Only 'sales_confirmation' is implemented now.
 const DOC_TYPES = [
@@ -44,6 +57,10 @@ const DOC_TYPES = [
 // ---- Boot -----------------------------------------------------------------
 (async function boot() {
   await initDB();
+  // Authentication gate — must come before any UI setup that queries user
+  // context. showAuthOverlay() resolves when the user is logged in.
+  await requireAuthentication();
+  applyRoleToBody();
   setupTabs();
   setupHeader();
   setupParties();
@@ -56,6 +73,11 @@ const DOC_TYPES = [
   setupCsvMenu();
   setupCertImport();
   setupSettings();
+  setupUserManagement();
+  setupAuditViewer();
+  setupUserMenu();
+  setupPasswordChange();
+  setupCryptoModal();
   setupHelp();
   setupDetailView();
   setupValidation();
@@ -65,6 +87,119 @@ const DOC_TYPES = [
   renderVehicleModels();
   refreshPreviewOptions();
 })();
+
+// ============================================================================
+// Authentication gate + current user helpers
+// ============================================================================
+
+async function requireAuthentication() {
+  const overlay = document.getElementById('auth-overlay');
+  if (needsInitialSetup()) {
+    return runInitialSetup(overlay);
+  }
+  if (getCurrentUser()) {
+    overlay.classList.add('hidden');
+    return;
+  }
+  return runLogin(overlay);
+}
+
+function runInitialSetup(overlay) {
+  return new Promise((resolve) => {
+    overlay.classList.remove('hidden');
+    document.getElementById('auth-subtitle').textContent = '初回セットアップ';
+    document.getElementById('auth-login-form').classList.add('hidden');
+    document.getElementById('auth-setup-form').classList.remove('hidden');
+    const form = document.getElementById('auth-setup-form');
+    const err = document.getElementById('auth-setup-error');
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      err.classList.add('hidden');
+      const d = new FormData(form);
+      const username = String(d.get('username')).trim();
+      const displayName = String(d.get('display_name') || '').trim();
+      const p1 = String(d.get('password'));
+      const p2 = String(d.get('password2'));
+      if (p1 !== p2) {
+        err.textContent = 'パスワードが一致しません';
+        err.classList.remove('hidden');
+        return;
+      }
+      if (p1.length < 8) {
+        err.textContent = 'パスワードは8文字以上にしてください';
+        err.classList.remove('hidden');
+        return;
+      }
+      try {
+        const id = await createInitialAdmin(username, p1, displayName);
+        const result = await authLogin(username, p1);
+        if (!result.ok) throw new Error(result.reason);
+        overlay.classList.add('hidden');
+        resolve();
+      } catch (e2) {
+        err.textContent = 'セットアップエラー: ' + e2.message;
+        err.classList.remove('hidden');
+      }
+    };
+  });
+}
+
+function runLogin(overlay) {
+  return new Promise((resolve) => {
+    overlay.classList.remove('hidden');
+    document.getElementById('auth-subtitle').textContent = 'ログインしてください';
+    document.getElementById('auth-login-form').classList.remove('hidden');
+    document.getElementById('auth-setup-form').classList.add('hidden');
+    const form = document.getElementById('auth-login-form');
+    const err = document.getElementById('auth-error');
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      err.classList.add('hidden');
+      const d = new FormData(form);
+      const username = String(d.get('username')).trim();
+      const password = String(d.get('password'));
+      const result = await authLogin(username, password);
+      if (!result.ok) {
+        err.textContent = result.reason || 'ログインに失敗しました';
+        err.classList.remove('hidden');
+        return;
+      }
+      overlay.classList.add('hidden');
+      form.reset();
+      resolve();
+    };
+  });
+}
+
+function currentRole() {
+  const u = getCurrentUser();
+  return u?.role || 'viewer';
+}
+
+function applyRoleToBody() {
+  document.body.dataset.role = currentRole();
+  const u = getCurrentUser();
+  if (u) {
+    document.getElementById('current-user-label').textContent = u.display_name || u.username;
+    const roleBadge = document.getElementById('current-user-role');
+    roleBadge.textContent = roleLabel(u.role);
+    roleBadge.className = 'badge badge--' + (
+      u.role === 'admin' ? 'indigo' : u.role === 'editor' ? 'blue' : 'gray'
+    );
+    document.getElementById('user-menu-name').textContent = u.display_name || u.username;
+    document.getElementById('user-menu-username').textContent = `@${u.username}`;
+  }
+}
+
+// Require edit permission for an action; show toast and return false if not allowed.
+function requireEdit() {
+  const u = getCurrentUser();
+  if (!canEdit(u)) {
+    toast('この操作には編集権限が必要です', 'error');
+    return false;
+  }
+  return true;
+}
 
 // ---- Tabs -----------------------------------------------------------------
 function setupTabs() {
@@ -87,23 +222,74 @@ function switchTab(name) {
 
 // ---- Header: DB export/import --------------------------------------------
 function setupHeader() {
-  document.getElementById('btn-export-db').addEventListener('click', () => {
+  document.getElementById('btn-export-db').addEventListener('click', async () => {
+    if (!canManageUsers(getCurrentUser())) { toast('DBエクスポートは管理者のみ', 'error'); return; }
+    const choice = confirm(
+      'DBをエクスポートします。\n\n' +
+      'OK = パスワード保護付きでエクスポート（推奨）\n' +
+      'キャンセル = 暗号化なしで平文エクスポート'
+    );
     const bytes = exportDB();
-    const blob = new Blob([bytes], { type: 'application/x-sqlite3' });
+    let finalBytes, ext;
+    if (choice) {
+      const password = await promptEncryptionPassword({
+        title: 'エクスポート用パスワード設定',
+        intro: 'このパスワードでDBを暗号化します。復元時に必要になるので忘れないでください。',
+        confirm: true,
+      });
+      if (!password) return;
+      finalBytes = await encryptBytes(bytes, password);
+      ext = 'edm'; // encrypted
+    } else {
+      finalBytes = bytes;
+      ext = 'sqlite';
+    }
+    const blob = new Blob([finalBytes], { type: 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `export-docs-${new Date().toISOString().slice(0, 10)}.sqlite`;
+    a.download = `export-docs-${new Date().toISOString().slice(0, 10)}.${ext}`;
     a.click();
     URL.revokeObjectURL(a.href);
+    await appendAuditLog({
+      actor_user_id: getCurrentUser().id, actor_username: getCurrentUser().username,
+      action: 'db_export', summary: choice ? 'DBエクスポート（暗号化）' : 'DBエクスポート（平文）',
+    });
     toast('DBをエクスポートしました', 'success');
   });
   document.getElementById('file-import-db').addEventListener('change', async (e) => {
+    if (!canManageUsers(getCurrentUser())) { toast('DBインポートは管理者のみ', 'error'); e.target.value = ''; return; }
     const f = e.target.files[0]; if (!f) return;
     try {
-      const bytes = new Uint8Array(await f.arrayBuffer());
+      let bytes = new Uint8Array(await f.arrayBuffer());
+      // Detect encrypted format by magic bytes "EDM1"
+      const magic = new TextDecoder().decode(bytes.slice(0, 4));
+      if (magic === 'EDM1') {
+        const password = await promptEncryptionPassword({
+          title: '復号パスワード',
+          intro: '暗号化されたDBを読み込みます。エクスポート時のパスワードを入力してください。',
+          confirm: false,
+        });
+        if (!password) { e.target.value = ''; return; }
+        try {
+          bytes = await decryptBytes(bytes, password);
+        } catch {
+          toast('復号に失敗しました。パスワードをご確認ください。', 'error');
+          e.target.value = '';
+          return;
+        }
+      }
+      if (!confirm('DBインポートで現在のデータが上書きされます。よろしいですか？')) {
+        e.target.value = '';
+        return;
+      }
       await importDB(bytes);
+      await appendAuditLog({
+        actor_user_id: getCurrentUser().id, actor_username: getCurrentUser().username,
+        action: 'db_import', summary: 'DBインポート',
+      });
       renderCases(); renderParties(); refreshPreviewOptions();
-      toast('DBをインポートしました', 'success');
+      toast('DBをインポートしました。再読み込みします。', 'success');
+      setTimeout(() => window.location.reload(), 1200);
     } catch (err) {
       toast('DBインポートに失敗: ' + err.message, 'error');
     } finally {
@@ -293,7 +479,7 @@ function renderCases() {
         <td>${escapeHtml(c.invoice_ref_no || '')}</td>
         <td>${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim())}</td>
         <td>${escapeHtml(c.chassis_no || '')}</td>
-        <td>${c.amount_jpy ? '¥' + Number(c.amount_jpy).toLocaleString() : ''}</td>
+        <td class="mask-amount">${c.amount_jpy ? '¥' + Number(c.amount_jpy).toLocaleString() : ''}</td>
         <td>${escapeHtml(c.etd || '')}</td>
         <td><span class="badge badge--${progressColor(prog)}">${escapeHtml(progressLabel(prog))}</span></td>
         <td><span class="badge badge--${paymentColor(pay)}">${escapeHtml(paymentLabel(pay))}</span></td>
@@ -326,7 +512,9 @@ function renderCases() {
   // Summary row
   const s = casesSummary(filters);
   document.getElementById('sum-count').textContent = s.totalCount;
-  document.getElementById('sum-amount').textContent = '¥' + s.totalAmount.toLocaleString();
+  const sumAmountEl = document.getElementById('sum-amount');
+  sumAmountEl.textContent = '¥' + s.totalAmount.toLocaleString();
+  sumAmountEl.classList.add('mask-amount');
   document.getElementById('sum-paid-count').textContent = `${s.paidCount} / ${s.totalCount}`;
   document.getElementById('sum-paid-amount').textContent = '¥' + s.paidAmount.toLocaleString();
   const sumOutEl = document.getElementById('sum-outstanding');
@@ -340,6 +528,7 @@ function setupEditor() {
   const form = document.getElementById('form-case');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!requireEdit()) return;
     const data = formToObject(form);
     if (!data.id) delete data.id;
     else data.id = Number(data.id);
@@ -354,6 +543,13 @@ function setupEditor() {
     }
 
     const id = await saveCase(data);
+    const u = getCurrentUser();
+    await appendAuditLog({
+      actor_user_id: u.id, actor_username: u.username,
+      action: prev ? 'case_update' : 'case_create',
+      target_type: 'case', target_id: id,
+      summary: `${prev ? '案件更新' : '案件作成'}: ${data.case_code || '#' + id}`,
+    });
 
     // Save registration events
     await replaceCaseEvents(id, collectRegEvents());
@@ -406,10 +602,18 @@ function setupEditor() {
 
   document.getElementById('btn-case-cancel').addEventListener('click', () => switchTab('cases'));
   document.getElementById('btn-case-delete').addEventListener('click', async () => {
+    if (!requireEdit()) return;
     const id = Number(form.elements.id.value);
     if (!id) return;
     if (!confirm('この案件を削除しますか？（関連書類も削除されます）')) return;
+    const c = getCase(id);
     await deleteCase(id);
+    const u = getCurrentUser();
+    await appendAuditLog({
+      actor_user_id: u.id, actor_username: u.username,
+      action: 'case_delete', target_type: 'case', target_id: id,
+      summary: `案件削除: ${c?.case_code || '#' + id}`,
+    });
     toast('削除しました', 'success');
     switchTab('cases');
     renderCases();
@@ -2236,6 +2440,317 @@ function showValidationModal(caseId, docType, issues, onProceed) {
     document.getElementById('btn-preview-render').click();
   });
   modal.classList.remove('hidden');
+}
+
+// ============================================================================
+// User menu (header dropdown)
+// ============================================================================
+
+function setupUserMenu() {
+  const wrap = document.querySelector('.user-menu-wrap');
+  const btn = document.getElementById('btn-user-menu');
+  const menu = document.getElementById('user-menu');
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    menu.classList.toggle('hidden');
+  });
+  document.addEventListener('click', (e) => {
+    if (!wrap.contains(e.target)) menu.classList.add('hidden');
+  });
+  menu.querySelector('[data-user-action="logout"]').addEventListener('click', async () => {
+    if (!confirm('ログアウトしますか？')) return;
+    await authLogout();
+    window.location.reload();
+  });
+  menu.querySelector('[data-user-action="change-password"]').addEventListener('click', () => {
+    menu.classList.add('hidden');
+    document.getElementById('password-modal').classList.remove('hidden');
+  });
+}
+
+// ============================================================================
+// Password change (self)
+// ============================================================================
+
+function setupPasswordChange() {
+  const modal = document.getElementById('password-modal');
+  document.querySelectorAll('[data-password-close]').forEach(el => {
+    el.addEventListener('click', () => modal.classList.add('hidden'));
+  });
+  const form = document.getElementById('form-password');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('password-error');
+    err.classList.add('hidden');
+    const d = new FormData(form);
+    const cur = String(d.get('current'));
+    const n1  = String(d.get('new1'));
+    const n2  = String(d.get('new2'));
+    const u = getCurrentUser();
+    if (!u) { err.textContent = 'ログイン状態が失われました。再読み込みしてください。'; err.classList.remove('hidden'); return; }
+    if (n1 !== n2) { err.textContent = '新しいパスワードが一致しません'; err.classList.remove('hidden'); return; }
+    if (n1.length < 8) { err.textContent = '新しいパスワードは8文字以上'; err.classList.remove('hidden'); return; }
+    const ok = await verifyPassword(cur, u.password_salt, u.password_hash);
+    if (!ok) { err.textContent = '現在のパスワードが正しくありません'; err.classList.remove('hidden'); return; }
+    await changePassword(u.id, n1);
+    form.reset();
+    modal.classList.add('hidden');
+    toast('パスワードを変更しました', 'success');
+  });
+}
+
+// ============================================================================
+// User management (admin only)
+// ============================================================================
+
+function setupUserManagement() {
+  if (!canManageUsers(getCurrentUser())) return;
+  document.getElementById('btn-new-user').addEventListener('click', () => openUserEditor(null));
+  const form = document.getElementById('form-user');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = new FormData(form);
+    const id = d.get('id') ? Number(d.get('id')) : null;
+    const username = String(d.get('username')).trim();
+    const displayName = String(d.get('display_name') || '').trim();
+    const role = String(d.get('role'));
+    const isActive = Number(d.get('is_active'));
+    const password = String(d.get('password') || '');
+
+    // Uniqueness check
+    const existing = getUserByUsername(username);
+    if (existing && existing.id !== id) {
+      toast('このユーザー名は既に使用されています', 'error');
+      return;
+    }
+
+    if (id) {
+      const patch = { username, display_name: displayName, role, is_active: isActive };
+      if (password) {
+        if (password.length < 8) { toast('パスワードは8文字以上', 'error'); return; }
+        const { password_hash, password_salt } = await hashPassword(password);
+        patch.password_hash = password_hash;
+        patch.password_salt = password_salt;
+      }
+      await dbUpdateUser(id, patch);
+      await appendAuditLog({
+        actor_user_id: getCurrentUser().id,
+        actor_username: getCurrentUser().username,
+        action: 'user_update', target_type: 'user', target_id: id,
+        summary: `ユーザー更新: ${username} (role=${role}, active=${isActive})`,
+      });
+    } else {
+      if (!password || password.length < 8) { toast('新規作成時はパスワード必須（8文字以上）', 'error'); return; }
+      const { password_hash, password_salt } = await hashPassword(password);
+      const newId = await dbCreateUser({
+        username,
+        display_name: displayName,
+        password_hash, password_salt,
+        role, is_active: isActive,
+      });
+      await appendAuditLog({
+        actor_user_id: getCurrentUser().id,
+        actor_username: getCurrentUser().username,
+        action: 'user_create', target_type: 'user', target_id: newId,
+        summary: `ユーザー作成: ${username} (role=${role})`,
+      });
+    }
+    closeUserEditor();
+    renderUsersTable();
+    toast('ユーザーを保存しました', 'success');
+  });
+  document.getElementById('btn-user-cancel').addEventListener('click', closeUserEditor);
+  document.getElementById('btn-user-delete').addEventListener('click', async () => {
+    const id = Number(form.elements.id.value);
+    if (!id) return;
+    const u = dbGetUser(id);
+    if (!u) return;
+    if (u.id === getCurrentUser().id) {
+      toast('自分自身は削除できません', 'error');
+      return;
+    }
+    if (!confirm(`ユーザー「${u.username}」を削除しますか？`)) return;
+    await dbDeleteUser(id);
+    await appendAuditLog({
+      actor_user_id: getCurrentUser().id,
+      actor_username: getCurrentUser().username,
+      action: 'user_delete', target_type: 'user', target_id: id,
+      summary: `ユーザー削除: ${u.username}`,
+    });
+    closeUserEditor();
+    renderUsersTable();
+    toast('削除しました', 'success');
+  });
+  renderUsersTable();
+}
+
+function openUserEditor(id) {
+  const panel = document.getElementById('user-editor');
+  const form = document.getElementById('form-user');
+  panel.classList.remove('hidden');
+  if (id) {
+    const u = dbGetUser(id);
+    if (!u) return;
+    form.elements.id.value = u.id;
+    form.elements.username.value = u.username;
+    form.elements.display_name.value = u.display_name || '';
+    form.elements.role.value = u.role;
+    form.elements.is_active.value = String(u.is_active ?? 1);
+    form.elements.password.value = '';
+    document.getElementById('user-editor-title').textContent = `ユーザー編集: ${u.username}`;
+    document.getElementById('btn-user-delete').classList.remove('hidden');
+  } else {
+    form.reset();
+    form.elements.id.value = '';
+    form.elements.is_active.value = '1';
+    form.elements.role.value = 'editor';
+    document.getElementById('user-editor-title').textContent = '新規ユーザー';
+    document.getElementById('btn-user-delete').classList.add('hidden');
+  }
+}
+
+function closeUserEditor() {
+  document.getElementById('user-editor').classList.add('hidden');
+}
+
+function renderUsersTable() {
+  const tbody = document.querySelector('#table-users tbody');
+  if (!tbody) return;
+  const users = listUsers();
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td><strong>${escapeHtml(u.username)}</strong></td>
+      <td>${escapeHtml(u.display_name || '')}</td>
+      <td><span class="badge badge--${u.role === 'admin' ? 'indigo' : u.role === 'editor' ? 'blue' : 'gray'}">${escapeHtml(roleLabel(u.role))}</span></td>
+      <td>${u.is_active ? '<span class="badge badge--green">有効</span>' : '<span class="badge badge--red">無効</span>'}</td>
+      <td style="font-size:11px;color:#6b7280">${u.last_login_at ? new Date(u.last_login_at).toLocaleString('ja-JP') : '—'}</td>
+      <td style="font-size:11px;color:#6b7280">${u.created_at ? new Date(u.created_at).toLocaleDateString('ja-JP') : ''}</td>
+      <td><button class="btn" data-edit-user="${u.id}">編集</button></td>
+    </tr>
+  `).join('');
+  tbody.querySelectorAll('[data-edit-user]').forEach(btn => {
+    btn.addEventListener('click', () => openUserEditor(Number(btn.dataset.editUser)));
+  });
+}
+
+// ============================================================================
+// Audit log viewer (admin only)
+// ============================================================================
+
+function setupAuditViewer() {
+  if (!canViewAudit(getCurrentUser())) return;
+  document.getElementById('btn-audit-refresh').addEventListener('click', renderAuditLog);
+  document.getElementById('audit-filter-action').addEventListener('input', renderAuditLog);
+  renderAuditLog();
+}
+
+function renderAuditLog() {
+  const tbody = document.querySelector('#table-audit tbody');
+  if (!tbody) return;
+  const action = document.getElementById('audit-filter-action').value.trim();
+  const rows = listAuditLog({ limit: 500, action: action || null });
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:20px">ログがありません</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td style="font-size:11px;color:#6b7280">${new Date(r.created_at).toLocaleString('ja-JP')}</td>
+      <td>${escapeHtml(r.actor_username || '—')}</td>
+      <td><code style="font-size:11px">${escapeHtml(r.action || '')}</code></td>
+      <td style="font-size:11px">${r.target_type ? `${escapeHtml(r.target_type)}#${r.target_id ?? ''}` : '—'}</td>
+      <td style="font-size:12px">${escapeHtml(r.summary || '')}</td>
+    </tr>
+  `).join('');
+}
+
+// ============================================================================
+// Crypto modal (password prompt for export/import encryption)
+// ============================================================================
+
+let CRYPTO_ON_OK = null;
+
+function setupCryptoModal() {
+  const modal = document.getElementById('crypto-modal');
+  document.querySelectorAll('[data-crypto-close]').forEach(el => {
+    el.addEventListener('click', () => { modal.classList.add('hidden'); CRYPTO_ON_OK = null; });
+  });
+  document.getElementById('btn-crypto-ok').addEventListener('click', () => {
+    const form = document.getElementById('form-crypto');
+    const d = new FormData(form);
+    const p1 = String(d.get('pass1'));
+    const p2 = String(d.get('pass2') || '');
+    const err = document.getElementById('crypto-error');
+    err.classList.add('hidden');
+    const needConfirm = !document.getElementById('crypto-pass2-label').classList.contains('hidden');
+    if (needConfirm && p1 !== p2) {
+      err.textContent = 'パスワードが一致しません';
+      err.classList.remove('hidden');
+      return;
+    }
+    if (p1.length < 4) {
+      err.textContent = 'パスワードが短すぎます';
+      err.classList.remove('hidden');
+      return;
+    }
+    modal.classList.add('hidden');
+    form.reset();
+    const cb = CRYPTO_ON_OK;
+    CRYPTO_ON_OK = null;
+    if (cb) cb(p1);
+  });
+}
+
+function promptEncryptionPassword({ title, intro, confirm = false }) {
+  return new Promise((resolve) => {
+    document.getElementById('crypto-title').textContent = title;
+    document.getElementById('crypto-intro').textContent = intro;
+    const p2Label = document.getElementById('crypto-pass2-label');
+    if (confirm) p2Label.classList.remove('hidden');
+    else p2Label.classList.add('hidden');
+    document.getElementById('form-crypto').reset();
+    document.getElementById('crypto-error').classList.add('hidden');
+    document.getElementById('crypto-modal').classList.remove('hidden');
+    setTimeout(() => document.querySelector('#form-crypto [name="pass1"]').focus(), 50);
+    CRYPTO_ON_OK = (pass) => resolve(pass);
+  });
+}
+
+// AES-GCM encrypt/decrypt for DB export/import.
+async function deriveCryptoKey(password, salt) {
+  const enc = new TextEncoder();
+  const km = await crypto.subtle.importKey('raw', enc.encode(password), { name: 'PBKDF2' }, false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 200000, hash: 'SHA-256' },
+    km, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+  );
+}
+
+async function encryptBytes(plainBytes, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await deriveCryptoKey(password, salt);
+  const ct   = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plainBytes);
+  // Format: magic(4) | version(1) | salt(16) | iv(12) | ciphertext
+  const magic = new TextEncoder().encode('EDM1'); // Export Doc Manager v1
+  const out = new Uint8Array(4 + 1 + 16 + 12 + ct.byteLength);
+  out.set(magic, 0);
+  out[4] = 1;
+  out.set(salt, 5);
+  out.set(iv, 21);
+  out.set(new Uint8Array(ct), 33);
+  return out;
+}
+
+async function decryptBytes(encBytes, password) {
+  const magic = new TextDecoder().decode(encBytes.slice(0, 4));
+  if (magic !== 'EDM1') throw new Error('暗号化フォーマットが不正です');
+  const salt = encBytes.slice(5, 21);
+  const iv   = encBytes.slice(21, 33);
+  const ct   = encBytes.slice(33);
+  const key  = await deriveCryptoKey(password, salt);
+  const pt   = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+  return new Uint8Array(pt);
 }
 
 // ============================================================================

@@ -186,6 +186,33 @@ CREATE TABLE IF NOT EXISTS costs (
   FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  username        TEXT NOT NULL UNIQUE,
+  display_name    TEXT,
+  password_hash   TEXT NOT NULL,
+  password_salt   TEXT NOT NULL,
+  role            TEXT NOT NULL DEFAULT 'viewer',
+  is_active       INTEGER DEFAULT 1,
+  created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+  last_login_at   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_user_id   INTEGER,
+  actor_username  TEXT,
+  action          TEXT,
+  target_type     TEXT,
+  target_id       INTEGER,
+  summary         TEXT,
+  ip              TEXT,
+  created_at      TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_user_id);
+
 CREATE TABLE IF NOT EXISTS photos (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   case_id       INTEGER NOT NULL,
@@ -798,6 +825,87 @@ export async function replaceCaseEvents(case_id, events) {
 
 export function listCaseEvents(case_id) {
   return query('SELECT * FROM registration_events WHERE case_id=? ORDER BY sort_order, id', [case_id]);
+}
+
+// ---- Users (authentication) -----------------------------------------------
+const USER_FIELDS = [
+  'username','display_name','password_hash','password_salt','role','is_active','last_login_at',
+];
+
+export async function createUser(data) {
+  const cols = USER_FIELDS;
+  const vals = cols.map(k => {
+    const v = data[k];
+    if (v === '' || v === undefined) return null;
+    return v;
+  });
+  const ph = cols.map(() => '?').join(',');
+  run(`INSERT INTO users (${cols.join(',')}) VALUES (${ph})`, vals);
+  const id = lastInsertId();
+  await persist();
+  return id;
+}
+
+export async function updateUser(id, data) {
+  const cols = Object.keys(data).filter(k => USER_FIELDS.includes(k));
+  if (!cols.length) return;
+  const vals = cols.map(k => {
+    const v = data[k];
+    if (v === '' || v === undefined) return null;
+    return v;
+  });
+  const sets = cols.map(c => `${c}=?`).join(', ');
+  run(`UPDATE users SET ${sets} WHERE id=?`, [...vals, id]);
+  await persist();
+}
+
+export async function deleteUser(id) {
+  run('DELETE FROM users WHERE id=?', [id]);
+  await persist();
+}
+
+export function getUserByUsername(username) {
+  return queryOne('SELECT * FROM users WHERE username=?', [username]);
+}
+
+export function getUser(id) {
+  return queryOne('SELECT * FROM users WHERE id=?', [id]);
+}
+
+export function listUsers() {
+  return query('SELECT id, username, display_name, role, is_active, created_at, last_login_at FROM users ORDER BY id');
+}
+
+export function usersCount() {
+  const r = queryOne('SELECT COUNT(*) AS c FROM users');
+  return Number(r?.c || 0);
+}
+
+// ---- Audit log ------------------------------------------------------------
+export async function appendAuditLog(entry) {
+  run(
+    `INSERT INTO audit_log (actor_user_id, actor_username, action, target_type, target_id, summary)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [
+      entry.actor_user_id ?? null,
+      entry.actor_username ?? null,
+      entry.action ?? null,
+      entry.target_type ?? null,
+      entry.target_id ?? null,
+      entry.summary ?? null,
+    ]
+  );
+  await persist();
+}
+
+export function listAuditLog({ limit = 500, action = null, actorId = null } = {}) {
+  const where = [];
+  const params = [];
+  if (action) { where.push('action LIKE ?'); params.push(`%${action}%`); }
+  if (actorId) { where.push('actor_user_id = ?'); params.push(actorId); }
+  const sql = `SELECT * FROM audit_log${where.length ? ' WHERE ' + where.join(' AND ') : ''}
+               ORDER BY created_at DESC LIMIT ?`;
+  return query(sql, [...params, limit]);
 }
 
 // ---- Settings (key-value store for system-wide config) -------------------

@@ -4,14 +4,64 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=11">
-<link rel="stylesheet" href="css/documents.css?v=11">
+<link rel="stylesheet" href="css/app.css?v=12">
+<link rel="stylesheet" href="css/documents.css?v=12">
 </head>
 <body>
+
+<!-- Login / Setup overlay (shown when not authenticated) -->
+<div id="auth-overlay" class="auth-overlay hidden">
+  <div class="auth-panel">
+    <div class="auth-panel__header">
+      <h1>🚢 Export Document Manager</h1>
+      <p id="auth-subtitle">ログインしてください</p>
+    </div>
+
+    <!-- Login form (shown when users exist) -->
+    <form id="auth-login-form" class="auth-form">
+      <label>ユーザー名 <input name="username" autocomplete="username" required autofocus></label>
+      <label>パスワード <input name="password" type="password" autocomplete="current-password" required></label>
+      <div id="auth-error" class="auth-error hidden"></div>
+      <button type="submit" class="btn btn--primary" style="width:100%">ログイン</button>
+    </form>
+
+    <!-- First-time setup form (shown when users table is empty) -->
+    <form id="auth-setup-form" class="auth-form hidden">
+      <p class="hint">初めてご利用いただくため、管理者アカウントを作成します。</p>
+      <label>ユーザー名 <input name="username" autocomplete="username" required pattern="[A-Za-z0-9_\.\-]{3,32}" title="半角英数字 + _ . - / 3〜32文字"></label>
+      <label>表示名 <input name="display_name" placeholder="例: 管理者"></label>
+      <label>パスワード（8文字以上） <input name="password" type="password" autocomplete="new-password" required minlength="8"></label>
+      <label>パスワード（確認） <input name="password2" type="password" autocomplete="new-password" required minlength="8"></label>
+      <div id="auth-setup-error" class="auth-error hidden"></div>
+      <button type="submit" class="btn btn--primary" style="width:100%">管理者アカウントを作成</button>
+    </form>
+
+    <div class="auth-panel__footer">
+      <small>このシステムはセキュアモードで動作しています</small>
+    </div>
+  </div>
+</div>
+
+
 
 <header class="app-header">
   <h1>Export Document Management System</h1>
   <div class="app-header__actions">
+    <div class="user-menu-wrap">
+      <button id="btn-user-menu" class="btn btn--ghost" type="button">
+        <span id="current-user-label">—</span>
+        <span id="current-user-role" class="badge badge--gray" style="margin-left:6px"></span>
+      </button>
+      <div id="user-menu" class="menu hidden">
+        <div style="padding:10px 14px;border-bottom:1px solid #e5e7eb;font-size:12px;color:#6b7280">
+          <div id="user-menu-name" style="color:#1f2937;font-weight:600"></div>
+          <div id="user-menu-username"></div>
+        </div>
+        <button data-user-action="change-password">パスワード変更</button>
+        <hr>
+        <button data-user-action="logout">ログアウト</button>
+      </div>
+    </div>
     <button id="btn-help" class="btn btn--ghost" type="button">❓ ヘルプ</button>
     <button id="btn-export-db" class="btn btn--ghost" type="button">DBエクスポート (.sqlite)</button>
     <label class="btn btn--ghost">
@@ -593,6 +643,8 @@
       <button type="button" class="editor-tab editor-tab--active" data-settings-tab="numbering">自動採番</button>
       <button type="button" class="editor-tab" data-settings-tab="template">書類テンプレート</button>
       <button type="button" class="editor-tab" data-settings-tab="reminders">リマインダー</button>
+      <button type="button" class="editor-tab admin-only" data-settings-tab="users">ユーザー管理</button>
+      <button type="button" class="editor-tab admin-only" data-settings-tab="audit">監査ログ</button>
     </nav>
 
     <!-- 自動採番 -->
@@ -726,6 +778,79 @@
         <button type="button" class="btn btn--primary" id="btn-save-reminders">リマインダー設定を保存</button>
       </div>
     </div>
+
+    <!-- User management (admin only) -->
+    <div class="settings-pane admin-only" data-settings-pane="users">
+      <div class="panel">
+        <div class="toolbar">
+          <button type="button" class="btn btn--primary" id="btn-new-user">+ 新規ユーザー</button>
+          <span class="hint">ユーザーごとにロール（管理者/編集者/閲覧者）を設定できます。</span>
+        </div>
+        <div id="user-editor" class="panel hidden" style="margin-bottom:16px;background:#f9fafb">
+          <h3 id="user-editor-title">ユーザー編集</h3>
+          <form id="form-user" class="form-grid">
+            <input type="hidden" name="id">
+            <label>ユーザー名 <input name="username" required pattern="[A-Za-z0-9_\.\-]{3,32}" title="半角英数字 + _ . - / 3〜32文字"></label>
+            <label>表示名 <input name="display_name"></label>
+            <label>ロール
+              <select name="role" required>
+                <option value="admin">管理者 (admin)</option>
+                <option value="editor">編集者 (editor)</option>
+                <option value="viewer">閲覧者 (viewer)</option>
+              </select>
+            </label>
+            <label>有効化
+              <select name="is_active">
+                <option value="1">有効</option>
+                <option value="0">無効（ログイン不可）</option>
+              </select>
+            </label>
+            <label class="span-2">パスワード（新規/変更時のみ入力）<input name="password" type="password" minlength="8" autocomplete="new-password"></label>
+            <div class="form-actions span-2">
+              <button type="submit" class="btn btn--primary">保存</button>
+              <button type="button" class="btn btn--ghost" id="btn-user-cancel">キャンセル</button>
+              <button type="button" class="btn btn--danger hidden" id="btn-user-delete">削除</button>
+            </div>
+          </form>
+        </div>
+        <table class="data-table" id="table-users">
+          <thead>
+            <tr>
+              <th>ユーザー名</th>
+              <th>表示名</th>
+              <th>ロール</th>
+              <th>状態</th>
+              <th>最終ログイン</th>
+              <th>作成日</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Audit log (admin only) -->
+    <div class="settings-pane admin-only" data-settings-pane="audit">
+      <div class="panel">
+        <div class="toolbar">
+          <input id="audit-filter-action" class="input" placeholder="アクションで絞り込み (例: login, case_update)" style="max-width:340px">
+          <button type="button" class="btn" id="btn-audit-refresh">更新</button>
+        </div>
+        <table class="data-table" id="table-audit">
+          <thead>
+            <tr>
+              <th>日時</th>
+              <th>ユーザー</th>
+              <th>アクション</th>
+              <th>対象</th>
+              <th>内容</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
   </section>
 
   <!-- =========================  PREVIEW  ========================= -->
@@ -787,6 +912,54 @@
     <div class="modal__foot">
       <button type="button" class="btn btn--ghost" data-validate-close>編集に戻る</button>
       <button type="button" class="btn btn--primary" id="btn-validate-proceed">それでも発行する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Password change modal -->
+<div id="password-modal" class="modal hidden">
+  <div class="modal__backdrop" data-password-close></div>
+  <div class="modal__panel" style="width:min(460px,94vw)">
+    <div class="modal__head">
+      <h3>パスワード変更</h3>
+      <button type="button" class="modal__close" data-password-close>×</button>
+    </div>
+    <form id="form-password" style="padding:20px">
+      <div class="form-grid" style="grid-template-columns:1fr">
+        <label>現在のパスワード <input name="current" type="password" required autocomplete="current-password"></label>
+        <label>新しいパスワード（8文字以上） <input name="new1" type="password" required minlength="8" autocomplete="new-password"></label>
+        <label>新しいパスワード（確認） <input name="new2" type="password" required minlength="8" autocomplete="new-password"></label>
+        <div id="password-error" class="auth-error hidden"></div>
+      </div>
+    </form>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" data-password-close>キャンセル</button>
+      <button type="submit" form="form-password" class="btn btn--primary">変更する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export/Import password prompt modal -->
+<div id="crypto-modal" class="modal hidden">
+  <div class="modal__backdrop" data-crypto-close></div>
+  <div class="modal__panel" style="width:min(500px,94vw)">
+    <div class="modal__head">
+      <h3 id="crypto-title">パスワード</h3>
+      <button type="button" class="modal__close" data-crypto-close>×</button>
+    </div>
+    <div style="padding:20px">
+      <p id="crypto-intro" style="margin:0 0 12px;color:#374151;font-size:13px"></p>
+      <form id="form-crypto">
+        <div class="form-grid" style="grid-template-columns:1fr">
+          <label id="crypto-pass1-label">パスワード <input name="pass1" type="password" required autocomplete="off"></label>
+          <label id="crypto-pass2-label" class="hidden">パスワード（確認） <input name="pass2" type="password" autocomplete="off"></label>
+          <div id="crypto-error" class="auth-error hidden"></div>
+        </div>
+      </form>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" data-crypto-close>キャンセル</button>
+      <button type="button" class="btn btn--primary" id="btn-crypto-ok">OK</button>
     </div>
   </div>
 </div>

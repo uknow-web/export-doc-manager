@@ -963,6 +963,101 @@ export const HELP_SECTIONS = [
     `,
   },
 
+  // ===== SECURITY =====
+  { group: 'セキュリティ' },
+  {
+    id: 'auth',
+    title: 'ユーザー認証とロール',
+    content: `
+<h1>ユーザー認証とロール</h1>
+<p>本番環境での運用を安全にするため、ユーザー認証とロールベースのアクセス制御を実装しています。</p>
+
+<h2>3つのロール</h2>
+<table>
+  <tr><th>ロール</th><th>できること</th></tr>
+  <tr><td><strong>admin（管理者）</strong></td><td>すべての操作。ユーザー管理・監査ログ・DBエクスポート含む</td></tr>
+  <tr><td><strong>editor（編集者）</strong></td><td>案件・書類の編集・発行。ユーザー管理と監査ログは不可</td></tr>
+  <tr><td><strong>viewer（閲覧者）</strong></td><td>読み取り専用。金額・入金額はマスキング表示</td></tr>
+</table>
+
+<h2>初回セットアップ</h2>
+<p>初めてシステムを起動すると、管理者アカウント作成画面が表示されます。ユーザー名・表示名・パスワード（8文字以上）を入力してください。</p>
+
+<h2>ユーザー追加</h2>
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>管理者でログイン → 「設定」タブ → 「ユーザー管理」</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>「+ 新規ユーザー」 → ユーザー名・表示名・ロール・パスワードを入力 → 保存</p></div>
+</div>
+
+<h2>パスワード変更</h2>
+<p>ヘッダー右上のユーザー名 → ドロップダウン → 「パスワード変更」</p>
+
+<h2>パスワード保護</h2>
+<ul>
+  <li>パスワードはPBKDF2-SHA-256（31万回イテレーション）でハッシュ化して保存</li>
+  <li>セッションはブラウザ終了時に自動クリア（sessionStorage）</li>
+  <li>ログイン失敗は監査ログに記録</li>
+</ul>
+
+<blockquote class="warn">初期adminアカウントのパスワードは忘れないでください。復旧にはDBの直接編集が必要になります。</blockquote>
+    `,
+  },
+  {
+    id: 'security',
+    title: 'セキュリティ機能',
+    content: `
+<h1>セキュリティ機能</h1>
+
+<h2>監査ログ</h2>
+<p>すべての重要な操作が自動的に記録されます:</p>
+<ul>
+  <li>ログイン / ログアウト / ログイン失敗</li>
+  <li>ユーザーの作成・編集・削除</li>
+  <li>パスワード変更</li>
+  <li>案件の作成・更新・削除</li>
+  <li>DBエクスポート・インポート</li>
+</ul>
+<p>管理者は「設定」→「監査ログ」タブから全ログを閲覧・検索できます。</p>
+
+<h2>DBエクスポートの暗号化</h2>
+<p>DBエクスポート時にパスワード保護を選択できます:</p>
+<ul>
+  <li><strong>暗号化エクスポート（推奨）</strong>: AES-GCM 256bit + PBKDF2 でパスワード暗号化。拡張子 <code>.edm</code></li>
+  <li><strong>平文エクスポート</strong>: SQLite素のファイル。拡張子 <code>.sqlite</code></li>
+</ul>
+<p>暗号化ファイルのインポート時は、エクスポート時のパスワードを入力すると自動的に復号されます。</p>
+
+<h2>HTTPS/セキュリティヘッダー</h2>
+<p>本番デプロイ（Vercel）では以下のヘッダーが自動設定されます:</p>
+<ul>
+  <li><code>Strict-Transport-Security</code>: HTTPS強制</li>
+  <li><code>X-Frame-Options: DENY</code>: 他サイトのiframe埋め込みを禁止</li>
+  <li><code>X-Content-Type-Options: nosniff</code>: MIMEスニッフィング防止</li>
+  <li><code>Content-Security-Policy</code>: 外部スクリプトの読み込みを制限</li>
+  <li><code>Referrer-Policy</code>: リファラ漏洩を制限</li>
+  <li><code>Permissions-Policy</code>: カメラ・マイク・GPS等を無効化</li>
+</ul>
+
+<h2>機微情報のマスキング</h2>
+<p>閲覧者（viewer）ロールでログインすると、案件一覧・ダッシュボード等の金額表示が自動的にマスキングされます。</p>
+
+<blockquote>💡 業務上は見る必要のないメンバー（例: 外注スタッフ、監査人）には viewer ロールを付与することで、最小権限の原則を適用できます。</blockquote>
+
+<h2>運用ベストプラクティス</h2>
+<ol>
+  <li>強固なパスワード（12文字以上、英数字記号混在）を使用</li>
+  <li>定期的なパスワード変更（3ヶ月ごとなど）</li>
+  <li>退職者のアカウントは「無効化」で即座にアクセス停止</li>
+  <li>DBエクスポートは必ずパスワード暗号化を選択</li>
+  <li>監査ログを定期的にチェック（不審なログイン試行がないか）</li>
+</ol>
+    `,
+  },
+
   // ===== TROUBLESHOOTING =====
   { group: 'トラブル対応' },
   {
