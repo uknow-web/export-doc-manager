@@ -92,6 +92,7 @@ const DOC_TYPES = [
   setupCommandPalette();
   setupKeyboardShortcuts();
   startReminderScheduler();
+  setupAuthRouting();
   renderCases();
   renderParties();
   renderVehicleModels();
@@ -104,18 +105,47 @@ const DOC_TYPES = [
 
 async function requireAuthentication() {
   const overlay = document.getElementById('auth-overlay');
+
+  // Determine the desired post-login destination from the URL
+  const path = window.location.pathname;
+  const params = new URLSearchParams(window.location.search);
+  const returnTo = params.get('return') || '/';
+
   if (needsInitialSetup()) {
-    return runInitialSetup(overlay);
+    // Force URL to /setup so bookmarks make sense
+    if (path !== '/setup') {
+      history.replaceState({}, '', '/setup');
+    }
+    await runInitialSetup(overlay);
+    // After setup completes → switch to root
+    history.replaceState({}, '', returnTo && returnTo !== '/login' ? returnTo : '/');
+    return;
   }
+
   // Even if session exists, if DB is encrypted we no longer have the DEK in
   // memory (page reloaded). Force re-login to re-derive it.
   const { getBootstrapMeta, hasDek } = await import('./db.js');
   const meta = await getBootstrapMeta();
+
   if (getCurrentUser() && (!meta || !meta.encryption_enabled || hasDek())) {
     overlay.classList.add('hidden');
+    // If the user landed on /login while already authenticated, bounce them to /
+    if (path === '/login' || path === '/logout') {
+      history.replaceState({}, '', returnTo && returnTo !== '/login' ? returnTo : '/');
+    }
     return;
   }
-  return runLogin(overlay);
+
+  // Need to log in — force URL to /login with return parameter
+  if (path !== '/login') {
+    const q = (path !== '/' && path !== '/logout') ? `?return=${encodeURIComponent(path)}` : '';
+    history.replaceState({}, '', '/login' + q);
+  }
+  await runLogin(overlay);
+  // After login → navigate to return target (or root)
+  const finalDestination = returnTo && returnTo !== '/login' && returnTo !== '/logout'
+    ? returnTo : '/';
+  history.replaceState({}, '', finalDestination);
 }
 
 function runInitialSetup(overlay) {
@@ -233,6 +263,20 @@ function runLogin(overlay) {
 function currentRole() {
   const u = getCurrentUser();
   return u?.role || 'viewer';
+}
+
+// Handle browser back/forward — if user navigates to /login while logged in,
+// bounce them back to /; if to / while logged out, prompt login.
+function setupAuthRouting() {
+  window.addEventListener('popstate', () => {
+    const loggedIn = !!getCurrentUser();
+    const path = window.location.pathname;
+    if (path === '/login' && loggedIn) {
+      history.replaceState({}, '', '/');
+    } else if ((path === '/' || path === '/logout') && !loggedIn) {
+      window.location.href = '/login';
+    }
+  });
 }
 
 function applyRoleToBody() {
@@ -2868,7 +2912,8 @@ function setupUserMenu() {
   menu.querySelector('[data-user-action="logout"]').addEventListener('click', async () => {
     if (!confirm('ログアウトしますか？')) return;
     await authLogout();
-    window.location.reload();
+    // Navigate to /login (hard redirect so the app boots fresh)
+    window.location.href = '/login';
   });
   menu.querySelector('[data-user-action="change-password"]').addEventListener('click', () => {
     menu.classList.add('hidden');
@@ -2960,7 +3005,9 @@ function startSessionMonitor() {
   setInterval(() => {
     if (!touchSession()) {
       alert('セッションがタイムアウトしました。再ログインしてください。');
-      window.location.reload();
+      // Include current path as return target
+      const current = window.location.pathname + window.location.search;
+      window.location.href = '/login?return=' + encodeURIComponent(current);
     }
   }, 60 * 1000); // every minute
 }

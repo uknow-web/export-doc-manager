@@ -966,6 +966,38 @@ export const HELP_SECTIONS = [
   // ===== SECURITY =====
   { group: 'セキュリティ' },
   {
+    id: 'urls',
+    title: 'URL / ルーティング',
+    content: `
+<h1>URL / ルーティング</h1>
+<p>本アプリには、以下の3つの特殊なURLパスがあります。ブックマークや共有URLに活用できます。</p>
+
+<table>
+  <tr><th>パス</th><th>役割</th></tr>
+  <tr><td><code>/</code></td><td>メインアプリ。未ログイン時は自動的に <code>/login</code> にリダイレクト。</td></tr>
+  <tr><td><code>/login</code></td><td>ログイン画面。ログイン成功後は <code>/</code> または <code>?return=</code> で指定されたパスへ。</td></tr>
+  <tr><td><code>/setup</code></td><td>初回セットアップ画面（ユーザーがまだ存在しない時）。終了後は <code>/</code> へ。</td></tr>
+  <tr><td><code>/logout</code></td><td>ログアウト用パス。内部的にセッションをクリアして <code>/login</code> に遷移。</td></tr>
+</table>
+
+<h2>リダイレクト付きリンク</h2>
+<p>未ログイン状態で特定のページに直接アクセスすると、ログイン後にそこへ戻る仕組みがあります:</p>
+<pre>https://<ホスト>/?page=dashboard
+  ↓ 未ログインなので自動的に
+https://<ホスト>/login?return=%2F%3Fpage%3Ddashboard
+  ↓ ログイン成功後に
+https://<ホスト>/?page=dashboard</pre>
+
+<h2>ブックマーク推奨</h2>
+<ul>
+  <li><strong>ログインページをブックマーク</strong>: <code>https://<ホスト>/login</code></li>
+  <li><strong>業務画面をブックマーク</strong>: <code>https://<ホスト>/</code></li>
+</ul>
+
+<blockquote>💡 どちらのURLをブックマークしても、セッション状態に応じて適切な画面に自動遷移します。</blockquote>
+    `,
+  },
+  {
     id: 'auth',
     title: 'ユーザー認証とロール',
     content: `
