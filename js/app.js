@@ -106,43 +106,44 @@ const DOC_TYPES = [
 async function requireAuthentication() {
   const overlay = document.getElementById('auth-overlay');
 
-  // Determine the desired post-login destination from the URL
   const path = window.location.pathname;
   const params = new URLSearchParams(window.location.search);
   const returnTo = params.get('return') || '/';
 
-  if (needsInitialSetup()) {
-    // Force URL to /setup so bookmarks make sense
+  // IMPORTANT: check bootstrap_meta FIRST. When encryption is enabled, the
+  // in-memory DB is an empty shell until the user logs in and decrypts it —
+  // so usersCount() would incorrectly return 0 and trigger initial setup.
+  const { getBootstrapMeta, hasDek } = await import('./db.js');
+  const meta = await getBootstrapMeta();
+  const hasBootstrapUsers = !!(meta && Array.isArray(meta.users) && meta.users.length > 0);
+
+  // Fresh install only when there is no bootstrap meta AND the plain DB has
+  // no users. Legacy plain DBs fall through to the login branch below.
+  const freshInstall = !hasBootstrapUsers && needsInitialSetup();
+  if (freshInstall) {
     if (path !== '/setup') {
       history.replaceState({}, '', '/setup');
     }
     await runInitialSetup(overlay);
-    // After setup completes → switch to root
     history.replaceState({}, '', returnTo && returnTo !== '/login' ? returnTo : '/');
     return;
   }
 
-  // Even if session exists, if DB is encrypted we no longer have the DEK in
-  // memory (page reloaded). Force re-login to re-derive it.
-  const { getBootstrapMeta, hasDek } = await import('./db.js');
-  const meta = await getBootstrapMeta();
-
+  // Already installed. Even if session exists, if DB is encrypted we no
+  // longer have the DEK in memory (page reloaded). Force re-login.
   if (getCurrentUser() && (!meta || !meta.encryption_enabled || hasDek())) {
     overlay.classList.add('hidden');
-    // If the user landed on /login while already authenticated, bounce them to /
     if (path === '/login' || path === '/logout') {
       history.replaceState({}, '', returnTo && returnTo !== '/login' ? returnTo : '/');
     }
     return;
   }
 
-  // Need to log in — force URL to /login with return parameter
   if (path !== '/login') {
     const q = (path !== '/' && path !== '/logout') ? `?return=${encodeURIComponent(path)}` : '';
     history.replaceState({}, '', '/login' + q);
   }
   await runLogin(overlay);
-  // After login → navigate to return target (or root)
   const finalDestination = returnTo && returnTo !== '/login' && returnTo !== '/logout'
     ? returnTo : '/';
   history.replaceState({}, '', finalDestination);
