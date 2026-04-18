@@ -1059,6 +1059,86 @@ export const HELP_SECTIONS = [
   },
 
   {
+    id: 'db-encryption',
+    title: 'IndexedDB暗号化（端末紛失対策）',
+    content: `
+<h1>IndexedDB暗号化</h1>
+<p>ブラウザに保存される業務データを自動的に暗号化し、端末紛失時の情報漏洩を防ぎます。</p>
+
+<h2>仕組み（KEK-DEK方式）</h2>
+<ul>
+  <li><strong>DEK（データ暗号化キー）</strong>: ランダム生成の AES-GCM 256bit キー。DB本体を暗号化。</li>
+  <li><strong>KEK（キー暗号化キー）</strong>: 各ユーザーのパスワードから PBKDF2 で派生。</li>
+  <li>各ユーザーごとにDEKを自分のKEKで暗号化した<strong>エンベロープ</strong>を保持。</li>
+  <li>ログイン時: パスワード → KEK → エンベロープ復号 → DEK → DB復号</li>
+</ul>
+
+<h2>自動移行</h2>
+<p>既存環境で新機能を反映した後、<strong>最初にadminがログインすると自動的に暗号化が有効化</strong>されます。</p>
+
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>Adminが通常通りログイン</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>システムが暗号化状態を検出 → adminパスワードからKEK派生 → DEK生成 → DB全体をAES-GCMで暗号化</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>admin自身のDEKエンベロープを作成（admin以外のユーザーのエンベロープは未作成）</p></div>
+</div>
+
+<h2>他ユーザーのアクセス復旧</h2>
+<p>暗号化有効化時点で存在する非adminユーザーは、初回ログイン時に以下のメッセージが表示されます:</p>
+<blockquote class="warn">🔐 このアカウントはDB暗号化に対応していません。管理者に「ユーザー管理」からパスワードをリセットしてもらってください。</blockquote>
+
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>Adminがログイン → 設定 → ユーザー管理</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>対象ユーザーを「編集」 → 新しいパスワードを入力 → 保存</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>Adminが設定したパスワードを本人に伝達 → 本人がログイン → 好みのパスワードに変更</p></div>
+</div>
+
+<h2>新規ユーザー作成</h2>
+<p>管理者が新規ユーザーを作成すると、パスワードから自動的にDEKエンベロープが生成され、すぐにログイン可能になります。</p>
+
+<h2>保護される対象</h2>
+<table>
+  <tr><th>対象</th><th>保護</th></tr>
+  <tr><td>IndexedDB内のDB本体</td><td>✅ AES-GCM 256bit 暗号化</td></tr>
+  <tr><td>パスワード・DEK</td><td>✅ PBKDF2 + 塩付きハッシュ</td></tr>
+  <tr><td>ユーザー名一覧</td><td>⚠️ bootstrap_metaで平文（ログイン用に必要）</td></tr>
+  <tr><td>セッション情報</td><td>✅ sessionStorageで保持、ブラウザ終了で破棄</td></tr>
+  <tr><td>メモリ内のDEK</td><td>ログアウトで即クリア</td></tr>
+</table>
+
+<h2>重要な制約</h2>
+<blockquote class="danger">
+⚠️ <strong>パスワードを完全に忘れると復旧不可能です</strong>。<br>
+暗号化DBは該当ユーザーのパスワードでしか復号できません。admin全員がパスワードを失えば、DBは永久に読めません。<br>
+対策: <strong>定期的にDBエクスポート（暗号化または別パスワード）でバックアップ</strong>を取得してください。
+</blockquote>
+
+<h2>内部動作の詳細</h2>
+<table>
+  <tr><th>アルゴリズム</th><th>内容</th></tr>
+  <tr><td>KEK派生</td><td>PBKDF2-SHA-256, 250,000回, 16-byte salt</td></tr>
+  <tr><td>DEK</td><td>AES-GCM 256bit（extractable = true）</td></tr>
+  <tr><td>エンベロープ</td><td>AES-GCM(iv=12byte, GCM タグ付)でDEKをラップ</td></tr>
+  <tr><td>DB暗号化</td><td>AES-GCM(iv=12byte) + EDM2 マジックヘッダー</td></tr>
+</table>
+
+<blockquote>💡 FileVault / BitLocker 等のOSディスク暗号化と併用すれば多層防御になります。</blockquote>
+    `,
+  },
+  {
     id: 'hardening',
     title: 'ハッキング対策・高度なセキュリティ',
     content: `

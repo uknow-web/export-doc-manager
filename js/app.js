@@ -39,9 +39,11 @@ import {
   getCurrentUser, getSession, touchSession,
   hashPassword, verifyPassword, changePassword,
   enableTotp, disableTotp, unlockUser,
+  syncBootstrapMetaForUser, removeFromBootstrapMeta,
   canEdit, canManageUsers, canViewAudit, canSeeAmounts,
   ROLES, roleLabel,
 } from './auth.js';
+import { getDek } from './db.js';
 import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
@@ -105,7 +107,11 @@ async function requireAuthentication() {
   if (needsInitialSetup()) {
     return runInitialSetup(overlay);
   }
-  if (getCurrentUser()) {
+  // Even if session exists, if DB is encrypted we no longer have the DEK in
+  // memory (page reloaded). Force re-login to re-derive it.
+  const { getBootstrapMeta, hasDek } = await import('./db.js');
+  const meta = await getBootstrapMeta();
+  if (getCurrentUser() && (!meta || !meta.encryption_enabled || hasDek())) {
     overlay.classList.add('hidden');
     return;
   }
@@ -185,6 +191,11 @@ function runLogin(overlay) {
         totpForm.classList.remove('hidden');
         totpForm.elements.totp_code.value = '';
         totpForm.elements.totp_code.focus();
+        return;
+      }
+      if (result.needs_admin_reset) {
+        err.innerHTML = '🔐 このアカウントはDB暗号化に対応していません。<br>管理者に「ユーザー管理」からパスワードをリセットしてもらってください。';
+        err.classList.remove('hidden');
         return;
       }
       err.textContent = result.reason || 'ログインに失敗しました';
@@ -3019,11 +3030,24 @@ function setupUserManagement() {
         patch.password_salt = password_salt;
       }
       await dbUpdateUser(id, patch);
+      // If encryption is enabled and password was changed, re-wrap the user's
+      // DEK envelope with the new password (admin rewraps on behalf of the user).
+      if (password) {
+        const updatedUser = dbGetUser(id);
+        const dek = getDek();
+        if (updatedUser && dek) {
+          await syncBootstrapMetaForUser(updatedUser, password, dek);
+        }
+      } else {
+        // Password unchanged — just sync metadata (username etc.)
+        const updatedUser = dbGetUser(id);
+        if (updatedUser) await syncBootstrapMetaForUser(updatedUser, null, null);
+      }
       await appendAuditLog({
         actor_user_id: getCurrentUser().id,
         actor_username: getCurrentUser().username,
         action: 'user_update', target_type: 'user', target_id: id,
-        summary: `ユーザー更新: ${username} (role=${role}, active=${isActive})`,
+        summary: `ユーザー更新: ${username} (role=${role}, active=${isActive})${password ? ' + パスワード再設定' : ''}`,
       });
     } else {
       if (!password || password.length < 8) { toast('新規作成時はパスワード必須（8文字以上）', 'error'); return; }
@@ -3034,6 +3058,12 @@ function setupUserManagement() {
         password_hash, password_salt,
         role, is_active: isActive,
       });
+      // Create DEK envelope for the new user so they can decrypt the DB
+      const newUser = dbGetUser(newId);
+      const dek = getDek();
+      if (newUser && dek) {
+        await syncBootstrapMetaForUser(newUser, password, dek);
+      }
       await appendAuditLog({
         actor_user_id: getCurrentUser().id,
         actor_username: getCurrentUser().username,
@@ -3057,6 +3087,7 @@ function setupUserManagement() {
     }
     if (!confirm(`ユーザー「${u.username}」を削除しますか？`)) return;
     await dbDeleteUser(id);
+    await removeFromBootstrapMeta(u.username);
     await appendAuditLog({
       actor_user_id: getCurrentUser().id,
       actor_username: getCurrentUser().username,

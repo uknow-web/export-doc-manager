@@ -4,9 +4,20 @@
 // that can also be exported/imported as a .sqlite file.
 // ============================================================================
 
-const IDB_NAME = 'export-doc-mgr';
+// IndexedDB layout (v2):
+//   store 'sqlite':
+//     key 'db'             → plain SQLite bytes (legacy / encryption disabled)
+//     key 'encrypted_db'   → encrypted SQLite bytes (EDM2 magic-prefixed)
+//     key 'bootstrap_meta' → { version, encryption_enabled, users: [{ username,
+//                             password_salt, password_hash, dek_envelope }] }
+//
+// On load we first check bootstrap_meta + encrypted_db. If encryption is
+// disabled we fall back to the legacy 'db' key.
+const IDB_NAME  = 'export-doc-mgr';
 const IDB_STORE = 'sqlite';
-const IDB_KEY = 'db';
+const IDB_KEY_PLAIN     = 'db';
+const IDB_KEY_ENCRYPTED = 'encrypted_db';
+const IDB_KEY_BOOTSTRAP = 'bootstrap_meta';
 
 function idbOpen() {
   return new Promise((resolve, reject) => {
@@ -16,23 +27,58 @@ function idbOpen() {
     req.onerror = () => reject(req.error);
   });
 }
-async function idbGet() {
+async function idbGetKey(key) {
   const db = await idbOpen();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readonly');
-    const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
+    const req = tx.objectStore(IDB_STORE).get(key);
     req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
   });
 }
-async function idbPut(bytes) {
+async function idbPutKey(key, value) {
   const db = await idbOpen();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readwrite');
-    tx.objectStore(IDB_STORE).put(bytes, IDB_KEY);
+    tx.objectStore(IDB_STORE).put(value, key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
+}
+async function idbDeleteKey(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Legacy aliases used before encryption support was added.
+async function idbGet() { return idbGetKey(IDB_KEY_PLAIN); }
+async function idbPut(bytes) { return idbPutKey(IDB_KEY_PLAIN, bytes); }
+
+// ---- Bootstrap meta (plain JSON in IndexedDB, holds login bootstrap data)
+export async function getBootstrapMeta() {
+  const v = await idbGetKey(IDB_KEY_BOOTSTRAP);
+  if (!v) return null;
+  if (typeof v === 'string') {
+    try { return JSON.parse(v); } catch { return null; }
+  }
+  return v;
+}
+export async function saveBootstrapMeta(meta) {
+  await idbPutKey(IDB_KEY_BOOTSTRAP, JSON.stringify(meta));
+}
+export async function getEncryptedDbBytes() {
+  return idbGetKey(IDB_KEY_ENCRYPTED);
+}
+export async function saveEncryptedDbBytes(bytes) {
+  return idbPutKey(IDB_KEY_ENCRYPTED, bytes);
+}
+export async function deletePlainDb() {
+  return idbDeleteKey(IDB_KEY_PLAIN);
 }
 
 // ---- Schema ---------------------------------------------------------------
@@ -300,23 +346,75 @@ CREATE TABLE IF NOT EXISTS case_documents (
 // ---- Module-level state ---------------------------------------------------
 let SQL = null;
 let db  = null;
+let currentDek = null; // AES-GCM CryptoKey, set after successful login when DB is encrypted
 
+/** Called by auth.js after the user's password has unwrapped the DEK. */
+export function setDek(dek) { currentDek = dek; }
+export function clearDek() { currentDek = null; }
+export function hasDek() { return currentDek !== null; }
+export function getDek() { return currentDek; }
+
+/**
+ * Boot the database. This does NOT decrypt an encrypted DB — that happens
+ * later during the authentication flow via `loadEncryptedDb(dek)`.
+ *
+ * On first run: creates plain DB. On an upgrade from legacy (unencrypted) DB
+ * the plain DB is loaded so auth.js can later encrypt it atomically.
+ */
 export async function initDB() {
   if (db) return db;
-  SQL = await initSqlJs({
-    locateFile: file => `vendor/${file}`,
-  });
+  SQL = await initSqlJs({ locateFile: file => `vendor/${file}` });
+
+  const meta = await getBootstrapMeta();
+  if (meta && meta.encryption_enabled) {
+    // Defer: we need the user's password to decrypt. Create empty in-memory
+    // DB shell so calls that only need schema bootstrap don't fail.
+    db = new SQL.Database();
+    db.exec(SCHEMA);
+    return db;
+  }
+
+  // Either fresh install, or legacy unencrypted deploy.
   const saved = await idbGet();
   db = saved ? new SQL.Database(saved) : new SQL.Database();
   db.exec(SCHEMA);
   migrate();
-  // Seed default seller (KMT) if parties table is empty.
   const n = db.exec('SELECT COUNT(*) FROM parties')[0].values[0][0];
   if (n === 0) seedDefaultSeller();
   const m = db.exec('SELECT COUNT(*) FROM vehicle_models')[0].values[0][0];
   if (m === 0) seedDefaultVehicleModel();
   await persist();
   return db;
+}
+
+/**
+ * Replace the in-memory DB with the decrypted bytes from IndexedDB.
+ * Called by auth.js once a user has logged in and unwrapped the DEK.
+ */
+export async function loadEncryptedDb(dek) {
+  const { decryptWithDek } = await import('./crypto.js');
+  const encBytes = await getEncryptedDbBytes();
+  if (!encBytes) throw new Error('暗号化DBが見つかりません');
+  const plain = await decryptWithDek(encBytes, dek);
+  db = new SQL.Database(plain);
+  db.exec(SCHEMA);
+  migrate();
+  currentDek = dek;
+  return db;
+}
+
+/**
+ * First-time encryption: take the current plain DB, encrypt it under DEK,
+ * save to IndexedDB as the encrypted copy, and delete the plain copy.
+ */
+export async function encryptExistingDb(dek) {
+  const { encryptWithDek } = await import('./crypto.js');
+  if (!db) throw new Error('DB not loaded');
+  const plain = db.export();
+  const enc = await encryptWithDek(plain, dek);
+  await saveEncryptedDbBytes(enc);
+  await deletePlainDb();
+  currentDek = dek;
 }
 
 // Idempotent column additions for DBs created before the column existed.
@@ -417,7 +515,15 @@ function seedDefaultVehicleModel() {
 
 export async function persist() {
   if (!db) return;
-  await idbPut(db.export());
+  const bytes = db.export();
+  if (currentDek) {
+    const { encryptWithDek } = await import('./crypto.js');
+    const enc = await encryptWithDek(bytes, currentDek);
+    await saveEncryptedDbBytes(enc);
+  } else {
+    // Plain storage (legacy / pre-encryption-enabled)
+    await idbPut(bytes);
+  }
 }
 
 // ---- Generic helpers ------------------------------------------------------
