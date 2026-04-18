@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=13">
-<link rel="stylesheet" href="css/documents.css?v=13">
+<link rel="stylesheet" href="css/app.css?v=14">
+<link rel="stylesheet" href="css/documents.css?v=14">
 </head>
 <body>
 
@@ -56,6 +56,9 @@
 <header class="app-header">
   <h1>Export Document Management System</h1>
   <div class="app-header__actions">
+    <button id="btn-open-cmdk" class="btn btn--ghost" type="button" title="コマンドパレット">
+      🔍 <span style="opacity:.7;font-size:11px;margin-left:4px">⌘K</span>
+    </button>
     <div class="user-menu-wrap">
       <button id="btn-user-menu" class="btn btn--ghost" type="button">
         <span id="current-user-label">—</span>
@@ -128,6 +131,13 @@
       <select id="filter-payment" class="input" style="max-width:180px">
         <option value="all">決済: すべて</option>
       </select>
+      <select id="filter-tag" class="input" style="max-width:180px">
+        <option value="">タグ: すべて</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#6b7280;margin:0 4px">
+        <input type="checkbox" id="filter-favorites" style="width:auto;margin:0">
+        ⭐のみ
+      </label>
       <button id="btn-filter-clear" class="btn btn--ghost" type="button">フィルタ解除</button>
     </div>
     <div id="cases-summary" class="stat-row">
@@ -418,6 +428,14 @@
         </label>
         <label>決済ステータス
           <select name="payment_status" id="case-payment-status"></select>
+        </label>
+        <label class="span-2">タグ（カンマ区切り。例: 緊急, サンプル, 再販）
+          <input name="tags" id="case-tags-input" placeholder="緊急, サンプル, 再販">
+          <small class="hint" id="case-tags-suggestions" style="margin-top:2px"></small>
+        </label>
+        <label class="span-2">
+          <input type="checkbox" name="is_favorite" id="case-is-favorite" style="width:auto;margin-right:6px">
+          ⭐ お気に入り（案件一覧で上部に固定表示）
         </label>
         <label class="span-2">メモ（ステータスに関する補足）
           <textarea name="status_note" rows="2" placeholder="例: 一部入金 500万円（2025-10-01）、残金は船積後"></textarea>
@@ -922,6 +940,24 @@
     <div class="modal__foot">
       <button type="button" class="btn btn--ghost" data-validate-close>編集に戻る</button>
       <button type="button" class="btn btn--primary" id="btn-validate-proceed">それでも発行する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Command palette (Cmd+K / Ctrl+K) -->
+<div id="cmdk-modal" class="modal hidden">
+  <div class="modal__backdrop" data-cmdk-close></div>
+  <div class="cmdk-panel">
+    <div class="cmdk-search">
+      <span class="cmdk-search__icon">🔍</span>
+      <input id="cmdk-input" type="text" placeholder="案件コード、車両、Buyer、タグ、操作を検索..." autocomplete="off">
+      <kbd style="font-size:10px;color:#9ca3af">ESC</kbd>
+    </div>
+    <div id="cmdk-results" class="cmdk-results"></div>
+    <div class="cmdk-footer">
+      <span><kbd>↑↓</kbd> 選択</span>
+      <span><kbd>Enter</kbd> 決定</span>
+      <span><kbd>Esc</kbd> 閉じる</span>
     </div>
   </div>
 </div>

@@ -7,6 +7,7 @@ import {
   listParties, saveParty, deleteParty, getParty,
   listVehicleModels, saveVehicleModel, deleteVehicleModel, getVehicleModel,
   listCases, saveCase, deleteCase, getCase, casesSummary,
+  listAllTags, toggleFavorite,
   saveCaseDoc, getCaseDoc, listCaseDocs,
   replaceCaseEvents, listCaseEvents,
   savePayment, deletePayment, listPayments, paymentsTotal,
@@ -86,6 +87,8 @@ const DOC_TYPES = [
   setupHelp();
   setupDetailView();
   setupValidation();
+  setupCommandPalette();
+  setupKeyboardShortcuts();
   startReminderScheduler();
   renderCases();
   renderParties();
@@ -496,19 +499,42 @@ function setupCases() {
 
   progressFilter.addEventListener('change', renderCases);
   paymentFilter.addEventListener('change', renderCases);
+  document.getElementById('filter-tag').addEventListener('change', renderCases);
+  document.getElementById('filter-favorites').addEventListener('change', renderCases);
   document.getElementById('btn-filter-clear').addEventListener('click', () => {
     document.getElementById('search-cases').value = '';
     progressFilter.value = 'all';
     paymentFilter.value = 'all';
+    document.getElementById('filter-tag').value = '';
+    document.getElementById('filter-favorites').checked = false;
     renderCases();
   });
 }
 
+function populateTagFilter() {
+  const sel = document.getElementById('filter-tag');
+  if (!sel) return;
+  const current = sel.value;
+  const tags = listAllTags();
+  sel.innerHTML = `<option value="">タグ: すべて</option>` +
+    tags.map(t => `<option value="${escapeHtml(t)}">🏷 ${escapeHtml(t)}</option>`).join('');
+  if (current) sel.value = current;
+}
+
+// Parse comma-separated tags from a case row into an array.
+function parseTags(str) {
+  if (!str) return [];
+  return String(str).split(',').map(s => s.trim()).filter(Boolean);
+}
+
 function renderCases() {
+  populateTagFilter();
   const q = document.getElementById('search-cases').value.trim();
   const filters = {
     progress_status: document.getElementById('filter-progress').value,
     payment_status:  document.getElementById('filter-payment').value,
+    tag:             document.getElementById('filter-tag').value,
+    favorites_only:  document.getElementById('filter-favorites').checked,
   };
   const rows = listCases(q, filters);
   const tbody = document.querySelector('#table-cases tbody');
@@ -518,9 +544,18 @@ function renderCases() {
     tbody.innerHTML = rows.map(c => {
       const prog = c.progress_status || 'inquiry';
       const pay  = c.payment_status || 'unpaid';
+      const tags = parseTags(c.tags);
+      const tagsHtml = tags.length
+        ? tags.slice(0, 3).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('')
+          + (tags.length > 3 ? `<span class="tag-chip" title="${escapeHtml(tags.slice(3).join(', '))}">+${tags.length - 3}</span>` : '')
+        : '';
       return `
-      <tr>
-        <td>${escapeHtml(c.case_code || '')}</td>
+      <tr class="${c.is_favorite ? 'row-favorite' : ''}">
+        <td>
+          <button class="fav-star ${c.is_favorite ? 'fav-star--on' : ''}" data-fav-case="${c.id}" title="${c.is_favorite ? 'お気に入り解除' : 'お気に入りに追加'}">${c.is_favorite ? '★' : '☆'}</button>
+          ${escapeHtml(c.case_code || '')}
+          ${tagsHtml ? `<div style="margin-top:2px">${tagsHtml}</div>` : ''}
+        </td>
         <td>${escapeHtml(c.invoice_ref_no || '')}</td>
         <td>${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim())}</td>
         <td>${escapeHtml(c.chassis_no || '')}</td>
@@ -536,6 +571,13 @@ function renderCases() {
         </td>
       </tr>`;
     }).join('');
+    tbody.querySelectorAll('[data-fav-case]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await toggleFavorite(Number(btn.dataset.favCase));
+        renderCases();
+      });
+    });
     tbody.querySelectorAll('[data-detail-case]').forEach(btn => {
       btn.addEventListener('click', () => openCaseDetail(Number(btn.dataset.detailCase)));
     });
@@ -580,6 +622,15 @@ function setupEditor() {
     if (data.seller_id) data.seller_id = Number(data.seller_id);
     if (data.vehicle_model_id) data.vehicle_model_id = Number(data.vehicle_model_id);
     if (data.notify_party_id) data.notify_party_id = Number(data.notify_party_id);
+
+    // Normalize tags: trim + deduplicate + comma-join
+    if (data.tags) {
+      const uniq = [...new Set(parseTags(data.tags))];
+      data.tags = uniq.join(', ') || null;
+    } else {
+      data.tags = null;
+    }
+    data.is_favorite = form.elements.is_favorite?.checked ? 1 : 0;
 
     // Detect status change to stamp updated_at
     const prev = data.id ? getCase(data.id) : null;
@@ -829,6 +880,9 @@ function openCaseEditor(id) {
   if (id) {
     const c = getCase(id);
     fillForm(form, c);
+    // Checkbox is not handled by fillForm (which only sets .value)
+    if (form.elements.is_favorite) form.elements.is_favorite.checked = !!c.is_favorite;
+    renderTagSuggestions();
     delBtn.classList.remove('hidden');
     // Populate per-doc settings
     const issued = new Set();
@@ -862,6 +916,8 @@ function openCaseEditor(id) {
     }
   } else {
     fillForm(form, null);
+    if (form.elements.is_favorite) form.elements.is_favorite.checked = false;
+    renderTagSuggestions();
     form.elements.id.value = '';
     form.elements.qty.value = 1;
     form.elements.type_of_service.value = 'RO/RO';
@@ -2509,6 +2565,278 @@ function showValidationModal(caseId, docType, issues, onProceed) {
     document.getElementById('btn-preview-render').click();
   });
   modal.classList.remove('hidden');
+}
+
+// ============================================================================
+// Tag suggestions (below tag input in case editor)
+// ============================================================================
+
+function renderTagSuggestions() {
+  const host = document.getElementById('case-tags-suggestions');
+  if (!host) return;
+  const tags = listAllTags();
+  if (!tags.length) {
+    host.textContent = '';
+    return;
+  }
+  host.innerHTML = '候補: ' + tags.map(t =>
+    `<span class="tag-chip" data-add-tag="${escapeHtml(t)}" style="cursor:pointer;margin-right:3px">${escapeHtml(t)}</span>`
+  ).join('');
+  host.querySelectorAll('[data-add-tag]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const input = document.getElementById('case-tags-input');
+      const cur = parseTags(input.value);
+      const add = chip.dataset.addTag;
+      if (!cur.includes(add)) {
+        cur.push(add);
+        input.value = cur.join(', ');
+      }
+    });
+  });
+}
+
+// ============================================================================
+// Command Palette (Cmd/Ctrl+K)
+// ============================================================================
+
+let CMDK_RESULTS = [];
+let CMDK_ACTIVE_INDEX = 0;
+
+function setupCommandPalette() {
+  const modal = document.getElementById('cmdk-modal');
+  document.querySelectorAll('[data-cmdk-close]').forEach(el => {
+    el.addEventListener('click', closeCommandPalette);
+  });
+  document.getElementById('btn-open-cmdk').addEventListener('click', openCommandPalette);
+  const input = document.getElementById('cmdk-input');
+  input.addEventListener('input', () => rebuildCmdkResults(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      CMDK_ACTIVE_INDEX = Math.min(CMDK_RESULTS.length - 1, CMDK_ACTIVE_INDEX + 1);
+      updateCmdkHighlight();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      CMDK_ACTIVE_INDEX = Math.max(0, CMDK_ACTIVE_INDEX - 1);
+      updateCmdkHighlight();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const hit = CMDK_RESULTS[CMDK_ACTIVE_INDEX];
+      if (hit) {
+        closeCommandPalette();
+        hit.run();
+      }
+    } else if (e.key === 'Escape') {
+      closeCommandPalette();
+    }
+  });
+}
+
+function openCommandPalette() {
+  const modal = document.getElementById('cmdk-modal');
+  modal.classList.remove('hidden');
+  const input = document.getElementById('cmdk-input');
+  input.value = '';
+  rebuildCmdkResults('');
+  setTimeout(() => input.focus(), 50);
+}
+
+function closeCommandPalette() {
+  document.getElementById('cmdk-modal').classList.add('hidden');
+}
+
+function rebuildCmdkResults(query) {
+  const q = String(query || '').trim().toLowerCase();
+  const results = [];
+
+  // Actions (always present, filtered by query)
+  const actions = [
+    { icon: '➕', title: '新規案件', sub: 'Cmd+N', run: () => openCaseEditor(null) },
+    { icon: '📋', title: '案件一覧',       run: () => switchTab('cases') },
+    { icon: '📊', title: 'ダッシュボード', run: () => switchTab('dashboard') },
+    { icon: '💰', title: '入金予定',       run: () => switchTab('receivables') },
+    { icon: '👥', title: 'Seller / Buyer 管理', run: () => switchTab('parties') },
+    { icon: '🚗', title: '車両モデル管理', run: () => switchTab('models') },
+    { icon: '📄', title: '書類プレビュー', run: () => switchTab('preview') },
+    { icon: '⚙️', title: '設定',           run: () => switchTab('settings') },
+    { icon: '❓', title: 'ヘルプを開く',   sub: 'Cmd+/', run: () => openHelp() },
+    { icon: '⭐', title: 'お気に入りのみ表示', run: () => {
+      document.getElementById('filter-favorites').checked = true;
+      switchTab('cases'); renderCases();
+    } },
+    { icon: '💾', title: 'DBエクスポート', run: () => document.getElementById('btn-export-db').click() },
+  ];
+  const matchingActions = actions.filter(a =>
+    !q || a.title.toLowerCase().includes(q) || (a.sub || '').toLowerCase().includes(q)
+  );
+  if (matchingActions.length) {
+    results.push({ group: '操作' });
+    results.push(...matchingActions);
+  }
+
+  // Cases
+  const cases = listCases(q);
+  const caseHits = cases.slice(0, 15).map(c => ({
+    icon: c.is_favorite ? '⭐' : '🚢',
+    title: `${c.case_code || '#' + c.id}${c.maker ? ' — ' + c.maker : ''}${c.model_name ? ' ' + c.model_name : ''}`,
+    sub: c.chassis_no ? `Chassis: ${c.chassis_no}` : '',
+    right: progressLabel(c.progress_status || 'inquiry'),
+    run: () => openCaseDetail(c.id),
+  }));
+  if (caseHits.length) {
+    results.push({ group: `案件 (${cases.length}件${cases.length > 15 ? '中 上位15件' : ''})` });
+    results.push(...caseHits);
+  }
+
+  // Parties
+  if (q) {
+    const partyHits = listParties('all').filter(p =>
+      p.company_name.toLowerCase().includes(q) ||
+      (p.address || '').toLowerCase().includes(q)
+    ).slice(0, 8).map(p => ({
+      icon: p.role === 'seller' ? '🏢' : p.role === 'buyer' ? '🛒' : '📨',
+      title: p.company_name,
+      sub: `${p.role} · ${p.address || ''}`.slice(0, 70),
+      run: () => { switchTab('parties'); },
+    }));
+    if (partyHits.length) {
+      results.push({ group: 'Seller / Buyer' });
+      results.push(...partyHits);
+    }
+
+    // Tags
+    const allTags = listAllTags();
+    const tagHits = allTags.filter(t => t.toLowerCase().includes(q)).map(t => ({
+      icon: '🏷',
+      title: `タグ: ${t}`,
+      sub: `このタグの案件のみ表示`,
+      run: () => {
+        document.getElementById('filter-tag').value = t;
+        switchTab('cases');
+        renderCases();
+      },
+    }));
+    if (tagHits.length) {
+      results.push({ group: 'タグ' });
+      results.push(...tagHits);
+    }
+  }
+
+  CMDK_RESULTS = results.filter(r => !r.group);
+  CMDK_ACTIVE_INDEX = 0;
+
+  const host = document.getElementById('cmdk-results');
+  if (!results.length) {
+    host.innerHTML = '<div class="cmdk-empty">結果がありません</div>';
+    return;
+  }
+  let itemIdx = 0;
+  host.innerHTML = results.map(r => {
+    if (r.group) return `<div class="cmdk-group__head">${escapeHtml(r.group)}</div>`;
+    const idx = itemIdx++;
+    return `
+      <div class="cmdk-item" data-cmdk-idx="${idx}">
+        <div class="cmdk-item__icon">${r.icon || ''}</div>
+        <div class="cmdk-item__body">
+          <div class="cmdk-item__title">${escapeHtml(r.title || '')}</div>
+          ${r.sub ? `<div class="cmdk-item__sub">${escapeHtml(r.sub)}</div>` : ''}
+        </div>
+        ${r.right ? `<div class="cmdk-item__right">${escapeHtml(r.right)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+  host.querySelectorAll('[data-cmdk-idx]').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      CMDK_ACTIVE_INDEX = Number(el.dataset.cmdkIdx);
+      updateCmdkHighlight();
+    });
+    el.addEventListener('click', () => {
+      const hit = CMDK_RESULTS[Number(el.dataset.cmdkIdx)];
+      if (hit) {
+        closeCommandPalette();
+        hit.run();
+      }
+    });
+  });
+  updateCmdkHighlight();
+}
+
+function updateCmdkHighlight() {
+  const host = document.getElementById('cmdk-results');
+  host.querySelectorAll('[data-cmdk-idx]').forEach(el => {
+    const active = Number(el.dataset.cmdkIdx) === CMDK_ACTIVE_INDEX;
+    el.classList.toggle('cmdk-item--active', active);
+    if (active) el.scrollIntoView({ block: 'nearest' });
+  });
+}
+
+// ============================================================================
+// Global keyboard shortcuts
+// ============================================================================
+
+function setupKeyboardShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    const mod = e.metaKey || e.ctrlKey;
+    const inputActive = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')
+                     && document.activeElement !== document.getElementById('cmdk-input');
+
+    // Cmd/Ctrl+K — open command palette (always available)
+    if (mod && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      openCommandPalette();
+      return;
+    }
+
+    // Cmd/Ctrl+N — new case (skip inside inputs; let browser handle new window otherwise)
+    if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey && !e.altKey) {
+      // Only trigger when not inside a native input to avoid conflicts
+      if (!inputActive) {
+        e.preventDefault();
+        openCaseEditor(null);
+        return;
+      }
+    }
+
+    // Cmd/Ctrl+S — save current form (in editor)
+    if (mod && e.key.toLowerCase() === 's') {
+      const form = document.getElementById('form-case');
+      const editorPane = document.getElementById('tab-editor');
+      if (editorPane && editorPane.classList.contains('active') && form) {
+        e.preventDefault();
+        form.requestSubmit();
+        return;
+      }
+    }
+
+    // Cmd/Ctrl+/  — open help
+    if (mod && e.key === '/') {
+      e.preventDefault();
+      openHelp();
+      return;
+    }
+
+    // ? (shift+/) — open help when not inside input
+    if (e.key === '?' && !mod && !inputActive) {
+      e.preventDefault();
+      openHelp();
+      return;
+    }
+
+    // Escape — close top modal
+    if (e.key === 'Escape') {
+      const modals = [
+        'cmdk-modal', 'help-modal', 'detail-modal', 'validate-modal',
+        'totp-modal', 'password-modal', 'crypto-modal', 'cert-modal',
+      ];
+      for (const id of modals) {
+        const m = document.getElementById(id);
+        if (m && !m.classList.contains('hidden')) {
+          m.classList.add('hidden');
+          return;
+        }
+      }
+    }
+  });
 }
 
 // ============================================================================

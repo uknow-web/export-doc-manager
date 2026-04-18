@@ -1220,29 +1220,81 @@ ALLOWED_ORIGINS=https://your-domain.vercel.app</pre>
     `,
   },
   {
+    id: 'quick-access',
+    title: 'コマンドパレット・タグ・お気に入り',
+    content: `
+<h1>コマンドパレット・タグ・お気に入り</h1>
+<p>大量の案件を扱う現場向けの、検索・ナビゲーション効率化機能です。</p>
+
+<h2>🔍 コマンドパレット（⌘K / Ctrl+K）</h2>
+<p>どの画面からでも <kbd>⌘</kbd>+<kbd>K</kbd>（Windows: <kbd>Ctrl</kbd>+<kbd>K</kbd>）で呼び出せる統合検索。</p>
+<ul>
+  <li><strong>案件検索</strong> — 案件コード・シャシ番号・Invoice Ref No・タグで絞り込み</li>
+  <li><strong>Seller/Buyer検索</strong> — 会社名・住所で絞り込み</li>
+  <li><strong>タグジャンプ</strong> — タグ名で検索 → そのタグの案件のみに絞り込み</li>
+  <li><strong>操作ジャンプ</strong> — 「新規案件」「ダッシュボード」「設定」などをキー入力で</li>
+</ul>
+
+<h3>操作</h3>
+<table>
+  <tr><th>キー</th><th>動作</th></tr>
+  <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>結果を選択</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>選択を実行</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>閉じる</td></tr>
+</table>
+
+<h2>🏷 タグ</h2>
+<p>案件に自由なラベル（緊急・サンプル・再販・クレーム対応など）を付けて分類できます。</p>
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>案件編集 → ステータスタブ → 「タグ」欄にカンマ区切りで入力</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>既存のタグが候補として表示される → クリックで追加できる</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>案件一覧でタグがチップ表示される。ツールバーの「タグ: すべて」ドロップダウンで絞り込み可能</p></div>
+</div>
+
+<h2>⭐ お気に入り</h2>
+<p>頻繁に参照する案件を一覧上部に固定表示できます。</p>
+<ul>
+  <li>案件一覧の案件コード左の ☆/★ アイコンをクリックでトグル</li>
+  <li>案件編集の「⭐ お気に入り」チェックボックスでも切替可能</li>
+  <li>お気に入り案件は一覧の上部に自動的にピン留め（黄色背景）</li>
+  <li>ツールバーの「⭐のみ」チェックで、お気に入りだけ表示</li>
+</ul>
+
+<blockquote>💡 使い分けの例: 進行中の重要案件は⭐、期間限定の分類（「2025年Q4重点」など）はタグ。</blockquote>
+    `,
+  },
+  {
     id: 'shortcuts',
     title: 'キーボードショートカット',
     content: `
-<h1>キーボードショートカット（ブラウザ標準）</h1>
+<h1>キーボードショートカット</h1>
 
-<h2>ページ操作</h2>
+<h2>アプリ内ショートカット</h2>
+<table>
+  <tr><th>操作</th><th>Mac</th><th>Windows/Linux</th></tr>
+  <tr><td>コマンドパレット</td><td><kbd>⌘</kbd>+<kbd>K</kbd></td><td><kbd>Ctrl</kbd>+<kbd>K</kbd></td></tr>
+  <tr><td>新規案件</td><td><kbd>⌘</kbd>+<kbd>N</kbd></td><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td></tr>
+  <tr><td>案件を保存（編集画面で）</td><td><kbd>⌘</kbd>+<kbd>S</kbd></td><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td></tr>
+  <tr><td>ヘルプ</td><td><kbd>⌘</kbd>+<kbd>/</kbd> or <kbd>?</kbd></td><td><kbd>Ctrl</kbd>+<kbd>/</kbd> or <kbd>?</kbd></td></tr>
+  <tr><td>モーダルを閉じる</td><td><kbd>Esc</kbd></td><td><kbd>Esc</kbd></td></tr>
+</table>
+
+<h2>ブラウザ標準ショートカット</h2>
 <table>
   <tr><th>操作</th><th>Mac</th><th>Windows</th></tr>
   <tr><td>スーパーリロード</td><td><kbd>⌘</kbd>+<kbd>⇧</kbd>+<kbd>R</kbd></td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd></td></tr>
-  <tr><td>通常リロード</td><td><kbd>⌘</kbd>+<kbd>R</kbd></td><td><kbd>F5</kbd></td></tr>
   <tr><td>印刷</td><td><kbd>⌘</kbd>+<kbd>P</kbd></td><td><kbd>Ctrl</kbd>+<kbd>P</kbd></td></tr>
   <tr><td>ページ内検索</td><td><kbd>⌘</kbd>+<kbd>F</kbd></td><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td></tr>
-  <tr><td>DevTools</td><td><kbd>⌘</kbd>+<kbd>⌥</kbd>+<kbd>I</kbd></td><td><kbd>F12</kbd></td></tr>
 </table>
 
-<h2>フォーム操作</h2>
-<table>
-  <tr><th>操作</th><th>キー</th></tr>
-  <tr><td>次のフィールドへ</td><td><kbd>Tab</kbd></td></tr>
-  <tr><td>前のフィールドへ</td><td><kbd>Shift</kbd>+<kbd>Tab</kbd></td></tr>
-  <tr><td>セレクト選択</td><td><kbd>↑</kbd> <kbd>↓</kbd> または頭文字</td></tr>
-  <tr><td>フォーム送信</td><td><kbd>Enter</kbd>（テキストフィールドで、submitボタンがある場合）</td></tr>
-</table>
+<blockquote>💡 操作の大半は <kbd>⌘</kbd>+<kbd>K</kbd> で済ませられます。「だいたいここから検索 → Enter」と覚えておくと便利です。</blockquote>
     `,
   },
 ];

@@ -1016,6 +1016,118 @@ input:focus, select:focus, textarea:focus {
   word-break: break-all;
 }
 
+/* ========== Tags & favorites ========== */
+.tag-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  background: #e0e7ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  margin-right: 3px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.tag-chip--remove { cursor: pointer; background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.tag-chip--remove:hover { background: #fecaca; }
+
+.fav-star {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+  color: #d1d5db;
+  transition: transform .1s, color .1s;
+}
+.fav-star:hover { transform: scale(1.2); }
+.fav-star--on  { color: #f59e0b; }
+
+tr.row-favorite { background: #fffbeb; }
+tr.row-favorite:hover { background: #fef3c7; }
+
+/* ========== Command palette (Cmd+K) ========== */
+.cmdk-panel {
+  position: relative;
+  background: #fff;
+  width: min(640px, 94vw);
+  margin-top: 10vh;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+.cmdk-search {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  gap: 10px;
+}
+.cmdk-search__icon { font-size: 16px; opacity: .6; }
+#cmdk-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 15px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+#cmdk-input:focus { box-shadow: none; }
+.cmdk-results { overflow-y: auto; flex: 1; }
+.cmdk-group__head {
+  padding: 6px 14px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  background: #f9fafb;
+}
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  border-left: 3px solid transparent;
+}
+.cmdk-item--active {
+  background: #eff6ff;
+  border-left-color: #2563eb;
+}
+.cmdk-item__icon { width: 24px; font-size: 14px; opacity: .7; }
+.cmdk-item__body { flex: 1; }
+.cmdk-item__title { color: #1f2937; font-weight: 500; }
+.cmdk-item__sub { font-size: 11px; color: #6b7280; margin-top: 1px; }
+.cmdk-item__right { font-size: 10.5px; color: #9ca3af; }
+.cmdk-footer {
+  display: flex;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 8px 16px;
+  border-top: 1px solid #e5e7eb;
+  font-size: 11px;
+  color: #6b7280;
+  background: #f9fafb;
+}
+.cmdk-footer kbd {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 10px;
+  margin-right: 4px;
+}
+.cmdk-empty { padding: 24px; text-align: center; color: #9ca3af; font-size: 12px; }
+
 /* ========== Authentication overlay ========== */
 .auth-overlay {
   position: fixed;

@@ -168,6 +168,10 @@ CREATE TABLE IF NOT EXISTS cases (
   status_note               TEXT,
   status_updated_at         TEXT,
 
+  /* --- Tags & favorites --- */
+  tags                      TEXT,
+  is_favorite               INTEGER DEFAULT 0,
+
   created_at         TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (seller_id)        REFERENCES parties(id),
   FOREIGN KEY (vehicle_model_id) REFERENCES vehicle_models(id),
@@ -345,6 +349,8 @@ function migrate() {
     ['payment_status',"TEXT DEFAULT 'unpaid'"],
     ['status_note','TEXT'],
     ['status_updated_at','TEXT'],
+    ['tags','TEXT'],
+    ['is_favorite','INTEGER DEFAULT 0'],
   ];
   for (const [c, d] of newCaseCols) addColumnIfMissing('cases', c, d);
 
@@ -547,6 +553,7 @@ const CASE_FIELDS = [
   'spec_no','classification_no','owner_code',
   'fuel_classification_spec','engine_model','maker_code','issuer_title',
   'progress_status','payment_status','status_note','status_updated_at',
+  'tags','is_favorite',
 ];
 
 export async function saveCase(data) {
@@ -580,9 +587,9 @@ export function listCases(search = '', filters = {}) {
   const where = [];
   const params = [];
   if (search) {
-    where.push('(case_code LIKE ? OR chassis_no LIKE ? OR invoice_ref_no LIKE ?)');
+    where.push('(case_code LIKE ? OR chassis_no LIKE ? OR invoice_ref_no LIKE ? OR tags LIKE ?)');
     const q = `%${search}%`;
-    params.push(q, q, q);
+    params.push(q, q, q, q);
   }
   if (filters.progress_status && filters.progress_status !== 'all') {
     where.push('COALESCE(progress_status, \'inquiry\') = ?');
@@ -592,8 +599,37 @@ export function listCases(search = '', filters = {}) {
     where.push('COALESCE(payment_status, \'unpaid\') = ?');
     params.push(filters.payment_status);
   }
-  const sql = `SELECT * FROM cases${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC`;
+  if (filters.tag) {
+    // Tags are stored as comma-separated values — use pattern to match a single tag.
+    where.push('(\',\' || COALESCE(tags,\'\') || \',\') LIKE ?');
+    params.push(`%,${filters.tag},%`);
+  }
+  if (filters.favorites_only) {
+    where.push('is_favorite = 1');
+  }
+  // Favorites pinned to top, then newest first.
+  const sql = `SELECT * FROM cases${where.length ? ' WHERE ' + where.join(' AND ') : ''}
+               ORDER BY is_favorite DESC, id DESC`;
   return query(sql, params);
+}
+
+// Collect distinct tags across all cases for filter UI / autocomplete.
+export function listAllTags() {
+  const rows = query("SELECT tags FROM cases WHERE tags IS NOT NULL AND tags != ''");
+  const set = new Set();
+  for (const r of rows) {
+    String(r.tags).split(',').map(s => s.trim()).filter(Boolean).forEach(t => set.add(t));
+  }
+  return [...set].sort();
+}
+
+export async function toggleFavorite(caseId) {
+  const c = queryOne('SELECT is_favorite FROM cases WHERE id=?', [caseId]);
+  if (!c) return false;
+  const next = c.is_favorite ? 0 : 1;
+  run('UPDATE cases SET is_favorite=? WHERE id=?', [next, caseId]);
+  await persist();
+  return next === 1;
 }
 
 // Lightweight stat summary used by the case list footer and the dashboard.
