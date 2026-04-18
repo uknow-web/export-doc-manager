@@ -103,8 +103,42 @@ const DOC_TYPES = [
 // Authentication gate + current user helpers
 // ============================================================================
 
+// Wire the "reset all data" button — once per boot, always available on the
+// auth overlay. Wipes IndexedDB completely and reloads.
+function setupResetAllData() {
+  const btn = document.getElementById('btn-reset-all-data');
+  if (!btn || btn.dataset.wired) return;
+  btn.dataset.wired = 'true';
+  btn.addEventListener('click', async () => {
+    const ok1 = confirm('⚠️ 全てのデータ（案件・ユーザー・設定・写真）を削除します。本当にリセットしますか？');
+    if (!ok1) return;
+    const ok2 = confirm('この操作は取り消せません。もう一度確認します — 本当にすべて削除しますか？');
+    if (!ok2) return;
+    try {
+      // Clear session
+      sessionStorage.clear();
+      // Delete the entire IndexedDB database
+      await new Promise((resolve, reject) => {
+        const req = indexedDB.deleteDatabase('export-doc-mgr');
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+        req.onblocked = () => {
+          // Close other tabs with this app open
+          alert('他のタブでこのアプリが開いている可能性があります。すべてのタブを閉じてから再試行してください。');
+          reject(new Error('IndexedDB delete blocked'));
+        };
+      });
+      alert('リセット完了。ページを再読み込みします。');
+      window.location.href = '/setup';
+    } catch (e) {
+      alert('リセット失敗: ' + e.message + '\nDevToolsから手動で削除してください。');
+    }
+  });
+}
+
 async function requireAuthentication() {
   const overlay = document.getElementById('auth-overlay');
+  setupResetAllData();
 
   const path = window.location.pathname;
   const params = new URLSearchParams(window.location.search);
