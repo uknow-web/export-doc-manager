@@ -1058,6 +1058,100 @@ export const HELP_SECTIONS = [
     `,
   },
 
+  {
+    id: 'hardening',
+    title: 'ハッキング対策・高度なセキュリティ',
+    content: `
+<h1>ハッキング対策・高度なセキュリティ</h1>
+<p>API利用を想定した追加のセキュリティ機能を備えています。</p>
+
+<h2>ブルートフォース対策</h2>
+<ul>
+  <li>ログイン失敗時は段階的に遅延が発生（1回目=即、2回目=1秒、3回目=2秒、4回目=5秒、5回目=10秒）</li>
+  <li><strong>連続5回失敗で自動ロック</strong>（15分間ログイン不可）</li>
+  <li>管理者は「設定 → ユーザー管理」からロック解除可能</li>
+  <li>ユーザー列挙攻撃を防ぐため、ユーザー不明時もダミーハッシュを計算して応答時間を均一化</li>
+</ul>
+
+<h2>2段階認証（TOTP）</h2>
+<ul>
+  <li>Google Authenticator、1Password、Authy等の認証アプリに対応</li>
+  <li>有効化手順: ヘッダーのユーザー名 → 「2段階認証（2FA）設定」</li>
+  <li>QRコードをスキャン → 表示された6桁コードで有効化</li>
+  <li>有効化後はログイン時に毎回コード入力が必要</li>
+  <li>時計ずれ対応: ±30秒のウィンドウで検証</li>
+</ul>
+
+<blockquote class="warn">2FAを有効化した後、認証アプリを紛失するとログインできなくなります。管理者は他ユーザーの2FA無効化が可能ですが、唯一の管理者の場合は復旧が困難です。複数の管理者を作成することを推奨します。</blockquote>
+
+<h2>セッションタイムアウト</h2>
+<ul>
+  <li><strong>アイドル8時間</strong>で自動ログアウト（最終操作からの時間）</li>
+  <li><strong>絶対24時間</strong>で強制再ログイン</li>
+  <li>クリック・入力・キー操作で自動的にタイマーがリセット</li>
+</ul>
+
+<h2>セキュリティアラート（管理者向け）</h2>
+<p>ダッシュボードの「今日やること」欄に、24時間以内のログイン失敗が3件以上、またはロック発生時に警告を表示します。監査ログで詳細確認してください。</p>
+
+<h2>APIプロキシ（サーバーサイド）</h2>
+<p>外部APIを利用する場合、APIキーをブラウザに露出させないため<strong>Vercel Serverless Functions</strong>をプロキシとして使用します。</p>
+<ul>
+  <li>ファイル: <code>api/proxy/ai.js</code>, <code>api/proxy/mail.js</code></li>
+  <li>APIキーはVercel環境変数に保存</li>
+  <li>オリジン検証、レート制限（20-60 req/min）、リクエストボディサイズ制限（64KB）を実施</li>
+  <li>対応プロバイダー: Anthropic Claude, OpenAI, Resend, SendGrid</li>
+</ul>
+
+<h3>Vercel環境変数の設定例</h3>
+<pre>ANTHROPIC_API_KEY=sk-ant-xxx
+OPENAI_API_KEY=sk-xxx
+RESEND_API_KEY=re_xxx
+SENDGRID_API_KEY=SG.xxx
+API_PROXY_SIGNING_SECRET=(32文字以上のランダム文字列)
+API_RATE_LIMIT_PER_MINUTE=60
+ALLOWED_ORIGINS=https://your-domain.vercel.app</pre>
+
+<h2>Content Security Policy（CSP）</h2>
+<ul>
+  <li>外部スクリプトはCDN（jsDelivr, cdnjs）のみ許可</li>
+  <li>インラインスクリプト禁止（<code>'unsafe-inline'</code>削除）</li>
+  <li>iframe埋め込み禁止（<code>frame-ancestors 'none'</code>）</li>
+  <li>HTTPS強制（<code>upgrade-insecure-requests</code>）</li>
+  <li>object/embedタグ禁止（Flash等の古いプラグイン経由攻撃を遮断）</li>
+</ul>
+
+<h2>Subresource Integrity（SRI）</h2>
+<p>CDN経由で読み込む <code>tesseract.js</code> にはSRIハッシュを埋め込み済み。CDNが侵害されても改竄されたスクリプトの実行を防ぎます。</p>
+
+<h2>セキュリティヘッダー</h2>
+<table>
+  <tr><th>ヘッダー</th><th>役割</th></tr>
+  <tr><td>Strict-Transport-Security</td><td>HTTPS強制（HSTS、2年有効）</td></tr>
+  <tr><td>X-Frame-Options: DENY</td><td>iframe埋め込み禁止（クリックジャック対策）</td></tr>
+  <tr><td>X-Content-Type-Options: nosniff</td><td>MIMEスニッフィング防止</td></tr>
+  <tr><td>Referrer-Policy</td><td>リファラ漏洩制限</td></tr>
+  <tr><td>Permissions-Policy</td><td>カメラ・マイク・GPS・決済APIを無効化</td></tr>
+  <tr><td>Cross-Origin-Opener-Policy</td><td>ポップアップ経由の攻撃対策</td></tr>
+  <tr><td>Cross-Origin-Resource-Policy</td><td>他サイトからの読込禁止</td></tr>
+</table>
+
+<h2>セキュリティ報告窓口</h2>
+<p><code>/.well-known/security.txt</code> で脆弱性報告先を明記（<code>info@kmt.kyoto</code>）。</p>
+
+<h2>推奨運用</h2>
+<ol>
+  <li>管理者アカウントには必ず2FAを有効化</li>
+  <li>パスワードは12文字以上、英数字記号混在</li>
+  <li>退職者は即座にアカウント無効化</li>
+  <li>監査ログを週次でチェック</li>
+  <li>DBエクスポートは常に暗号化</li>
+  <li>APIキーはGitにコミットせず、Vercel環境変数で管理</li>
+  <li>ブラウザは常に最新版に更新</li>
+</ol>
+    `,
+  },
+
   // ===== TROUBLESHOOTING =====
   { group: 'トラブル対応' },
   {

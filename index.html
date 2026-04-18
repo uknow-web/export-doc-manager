@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=12">
-<link rel="stylesheet" href="css/documents.css?v=12">
+<link rel="stylesheet" href="css/app.css?v=13">
+<link rel="stylesheet" href="css/documents.css?v=13">
 </head>
 <body>
 
@@ -23,6 +23,15 @@
       <label>パスワード <input name="password" type="password" autocomplete="current-password" required></label>
       <div id="auth-error" class="auth-error hidden"></div>
       <button type="submit" class="btn btn--primary" style="width:100%">ログイン</button>
+    </form>
+
+    <!-- 2FA TOTP form (shown after password success if user has 2FA enabled) -->
+    <form id="auth-totp-form" class="auth-form hidden">
+      <p class="hint">認証アプリに表示された6桁のコードを入力してください。</p>
+      <label>認証コード <input name="totp_code" type="text" inputmode="numeric" pattern="\d{6}" maxlength="6" required autofocus autocomplete="one-time-code"></label>
+      <div id="auth-totp-error" class="auth-error hidden"></div>
+      <button type="submit" class="btn btn--primary" style="width:100%">認証</button>
+      <button type="button" class="btn btn--ghost" id="btn-totp-back" style="width:100%">ユーザー選択に戻る</button>
     </form>
 
     <!-- First-time setup form (shown when users table is empty) -->
@@ -58,6 +67,7 @@
           <div id="user-menu-username"></div>
         </div>
         <button data-user-action="change-password">パスワード変更</button>
+        <button data-user-action="manage-2fa">2段階認証（2FA）設定</button>
         <hr>
         <button data-user-action="logout">ログアウト</button>
       </div>
@@ -912,6 +922,39 @@
     <div class="modal__foot">
       <button type="button" class="btn btn--ghost" data-validate-close>編集に戻る</button>
       <button type="button" class="btn btn--primary" id="btn-validate-proceed">それでも発行する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 2FA setup modal -->
+<div id="totp-modal" class="modal hidden">
+  <div class="modal__backdrop" data-totp-close></div>
+  <div class="modal__panel" style="width:min(520px,94vw)">
+    <div class="modal__head">
+      <h3>2段階認証（TOTP）設定</h3>
+      <button type="button" class="modal__close" data-totp-close>×</button>
+    </div>
+    <div id="totp-status" style="padding:14px 20px;font-size:13px;border-bottom:1px solid #e5e7eb"></div>
+    <div id="totp-setup" style="padding:20px">
+      <p class="hint">Google Authenticator、1Password、Authyなどの認証アプリで以下のQRコードをスキャンしてください。</p>
+      <div style="display:flex;gap:16px;align-items:flex-start;margin:12px 0">
+        <img id="totp-qr" alt="QR Code" style="width:200px;height:200px;border:1px solid #e5e7eb;padding:4px;background:#fff">
+        <div style="flex:1;font-size:12px">
+          <div style="margin-bottom:6px;color:#6b7280">手動入力用の秘密鍵:</div>
+          <div id="totp-secret-display" style="padding:8px;background:#f9fafb;border-radius:4px;font-family:monospace;word-break:break-all"></div>
+          <div style="margin-top:8px;color:#6b7280;font-size:11px">アルゴリズム: SHA-1 / 桁数: 6 / 間隔: 30秒</div>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:14px">スキャン後、アプリに表示された6桁のコードを入力して有効化してください。</p>
+      <form id="form-totp-enable" class="form-grid" style="grid-template-columns:1fr">
+        <label>認証コード <input name="code" type="text" inputmode="numeric" pattern="\d{6}" maxlength="6" required></label>
+        <div id="totp-setup-error" class="auth-error hidden"></div>
+      </form>
+    </div>
+    <div class="modal__foot">
+      <button type="button" class="btn btn--ghost" data-totp-close>キャンセル</button>
+      <button type="button" class="btn btn--danger hidden" id="btn-totp-disable">無効化する</button>
+      <button type="submit" form="form-totp-enable" class="btn btn--primary" id="btn-totp-enable">有効化する</button>
     </div>
   </div>
 </div>

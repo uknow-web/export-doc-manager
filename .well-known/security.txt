@@ -1,0 +1,4 @@
+Contact: mailto:info@kmt.kyoto
+Expires: 2026-12-31T23:59:59Z
+Preferred-Languages: ja, en
+Policy: https://github.com/uknow-web/export-doc-manager/blob/main/SECURITY.md

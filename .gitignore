@@ -1,26 +1,91 @@
+# ============================================================================
+# .gitignore — Secret leakage prevention + platform artifacts
+# ============================================================================
+
 # Claude Code / editor metadata
 .claude/
+.cursor/
+.vscode/
+.idea/
 
 # OS-level
 .DS_Store
 Thumbs.db
+*.swp
+*~
 
 # Vercel
 .vercel/
+.vercel.json.bak
 
-# Local environment files
+# ----------------------------------------------------------------------------
+# Environment & secrets — NEVER commit any of these
+# ----------------------------------------------------------------------------
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+credentials.json
+service-account*.json
+*-credentials.json
+.aws/
+.ssh/
+id_rsa*
+id_ed25519*
 
-# Node (not used yet, but safety)
+# Common accidental commits
+config/production.js
+config/secrets.*
+*.secret.*
+
+# API key patterns in config
+.netrc
+.npmrc
+.yarnrc
+auth.toml
+
+# ----------------------------------------------------------------------------
+# Build / dependency artifacts
+# ----------------------------------------------------------------------------
 node_modules/
+dist/
+build/
+out/
+.next/
+.cache/
+*.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# User's local DB backups / exports
+# ----------------------------------------------------------------------------
+# User's local database backups / exports
+# ----------------------------------------------------------------------------
 *.sqlite
+*.sqlite-journal
 *.db
+*.db-journal
+*.edm
 export-docs-*.sqlite
+export-docs-*.edm
+backup-*.sqlite
+backup-*.edm
 
+# ----------------------------------------------------------------------------
 # Sample input files that shouldn't be part of the repo
+# ----------------------------------------------------------------------------
 /*.pdf
+samples/
+test-data/
+
+# Temporary files
+*.tmp
+tmp/
+temp/

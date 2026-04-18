@@ -187,15 +187,20 @@ CREATE TABLE IF NOT EXISTS costs (
 );
 
 CREATE TABLE IF NOT EXISTS users (
-  id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  username        TEXT NOT NULL UNIQUE,
-  display_name    TEXT,
-  password_hash   TEXT NOT NULL,
-  password_salt   TEXT NOT NULL,
-  role            TEXT NOT NULL DEFAULT 'viewer',
-  is_active       INTEGER DEFAULT 1,
-  created_at      TEXT DEFAULT CURRENT_TIMESTAMP,
-  last_login_at   TEXT
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  username              TEXT NOT NULL UNIQUE,
+  display_name          TEXT,
+  password_hash         TEXT NOT NULL,
+  password_salt         TEXT NOT NULL,
+  role                  TEXT NOT NULL DEFAULT 'viewer',
+  is_active             INTEGER DEFAULT 1,
+  totp_secret           TEXT,
+  totp_enabled          INTEGER DEFAULT 0,
+  failed_login_count    INTEGER DEFAULT 0,
+  lock_until            TEXT,
+  password_changed_at   TEXT,
+  created_at            TEXT DEFAULT CURRENT_TIMESTAMP,
+  last_login_at         TEXT
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -342,6 +347,16 @@ function migrate() {
     ['status_updated_at','TEXT'],
   ];
   for (const [c, d] of newCaseCols) addColumnIfMissing('cases', c, d);
+
+  // Newer columns added to users table for 2FA + brute force protection
+  const newUserCols = [
+    ['totp_secret', 'TEXT'],
+    ['totp_enabled', 'INTEGER DEFAULT 0'],
+    ['failed_login_count', 'INTEGER DEFAULT 0'],
+    ['lock_until', 'TEXT'],
+    ['password_changed_at', 'TEXT'],
+  ];
+  for (const [c, d] of newUserCols) addColumnIfMissing('users', c, d);
 }
 
 function seedDefaultSeller() {
@@ -829,7 +844,9 @@ export function listCaseEvents(case_id) {
 
 // ---- Users (authentication) -----------------------------------------------
 const USER_FIELDS = [
-  'username','display_name','password_hash','password_salt','role','is_active','last_login_at',
+  'username','display_name','password_hash','password_salt','role','is_active',
+  'totp_secret','totp_enabled','failed_login_count','lock_until',
+  'password_changed_at','last_login_at',
 ];
 
 export async function createUser(data) {

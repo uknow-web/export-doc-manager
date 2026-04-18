@@ -32,17 +32,21 @@ async function loadJsQR() {
   return jsQR;
 }
 
-// Tesseract is loaded from CDN on first OCR use.
+// Tesseract is loaded from CDN on first OCR use. The integrity hash pinned
+// below prevents the browser from executing a tampered copy of the library.
+const TESSERACT_CDN_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js';
+const TESSERACT_SRI     = 'sha384-1zP4ZOtlk2FXAOiUArpMuWf7INJJKe/ROfYFAVSeUa11DEfXdKWGiPI3dVma2Gt0';
+
 let tesseractLoadingPromise = null;
 async function loadTesseract() {
   if (window.Tesseract) return window.Tesseract;
   if (tesseractLoadingPromise) return tesseractLoadingPromise;
-  tesseractLoadingPromise = loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.0/dist/tesseract.min.js')
+  tesseractLoadingPromise = loadScript(TESSERACT_CDN_URL, TESSERACT_SRI)
     .then(() => window.Tesseract);
   return tesseractLoadingPromise;
 }
 
-function loadScript(src) {
+function loadScript(src, integrity) {
   return new Promise((resolve, reject) => {
     // Already loaded?
     if ([...document.scripts].some(s => s.src && s.src.includes(src))) {
@@ -50,8 +54,12 @@ function loadScript(src) {
     }
     const s = document.createElement('script');
     s.src = src;
+    if (integrity) {
+      s.integrity = integrity;
+      s.crossOrigin = 'anonymous';
+    }
     s.onload = () => resolve();
-    s.onerror = () => reject(new Error('Failed to load: ' + src));
+    s.onerror = () => reject(new Error('Failed to load (or integrity mismatch): ' + src));
     document.head.appendChild(s);
   });
 }

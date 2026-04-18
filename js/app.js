@@ -34,11 +34,14 @@ import { HELP_SECTIONS } from './help-content.js';
 import {
   needsInitialSetup, createInitialAdmin,
   login as authLogin, logout as authLogout,
-  getCurrentUser, getSession,
+  verifySecondFactor,
+  getCurrentUser, getSession, touchSession,
   hashPassword, verifyPassword, changePassword,
+  enableTotp, disableTotp, unlockUser,
   canEdit, canManageUsers, canViewAudit, canSeeAmounts,
   ROLES, roleLabel,
 } from './auth.js';
+import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
   deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
@@ -77,7 +80,9 @@ const DOC_TYPES = [
   setupAuditViewer();
   setupUserMenu();
   setupPasswordChange();
+  setup2FA();
   setupCryptoModal();
+  startSessionMonitor();
   setupHelp();
   setupDetailView();
   setupValidation();
@@ -148,25 +153,65 @@ function runLogin(overlay) {
   return new Promise((resolve) => {
     overlay.classList.remove('hidden');
     document.getElementById('auth-subtitle').textContent = 'ログインしてください';
-    document.getElementById('auth-login-form').classList.remove('hidden');
+    const loginForm = document.getElementById('auth-login-form');
+    const totpForm  = document.getElementById('auth-totp-form');
+    loginForm.classList.remove('hidden');
+    totpForm.classList.add('hidden');
     document.getElementById('auth-setup-form').classList.add('hidden');
-    const form = document.getElementById('auth-login-form');
     const err = document.getElementById('auth-error');
-    form.onsubmit = async (e) => {
+    const totpErr = document.getElementById('auth-totp-error');
+
+    let pendingUserId = null;
+
+    loginForm.onsubmit = async (e) => {
       e.preventDefault();
       err.classList.add('hidden');
-      const d = new FormData(form);
+      const d = new FormData(loginForm);
       const username = String(d.get('username')).trim();
       const password = String(d.get('password'));
       const result = await authLogin(username, password);
-      if (!result.ok) {
-        err.textContent = result.reason || 'ログインに失敗しました';
-        err.classList.remove('hidden');
+      if (result.ok) {
+        overlay.classList.add('hidden');
+        loginForm.reset();
+        resolve();
         return;
       }
-      overlay.classList.add('hidden');
-      form.reset();
-      resolve();
+      if (result.need_totp) {
+        pendingUserId = result.user_id;
+        loginForm.classList.add('hidden');
+        totpForm.classList.remove('hidden');
+        totpForm.elements.totp_code.value = '';
+        totpForm.elements.totp_code.focus();
+        return;
+      }
+      err.textContent = result.reason || 'ログインに失敗しました';
+      err.classList.remove('hidden');
+    };
+
+    totpForm.onsubmit = async (e) => {
+      e.preventDefault();
+      totpErr.classList.add('hidden');
+      if (!pendingUserId) return;
+      const code = String(totpForm.elements.totp_code.value).trim();
+      const result = await verifySecondFactor(pendingUserId, code);
+      if (result.ok) {
+        overlay.classList.add('hidden');
+        loginForm.reset();
+        totpForm.reset();
+        pendingUserId = null;
+        resolve();
+        return;
+      }
+      totpErr.textContent = result.reason || '認証失敗';
+      totpErr.classList.remove('hidden');
+    };
+
+    document.getElementById('btn-totp-back').onclick = () => {
+      pendingUserId = null;
+      totpForm.classList.add('hidden');
+      loginForm.classList.remove('hidden');
+      loginForm.elements.password.value = '';
+      loginForm.elements.username.focus();
     };
   });
 }
@@ -1250,7 +1295,31 @@ function renderTodayTasks(allCases, today) {
     </div>
   `;
 
+  // Security alert: recent failed login attempts (admin only)
+  let securityAlerts = '';
+  if (canManageUsers(getCurrentUser())) {
+    const last24h = Date.now() - 24 * 60 * 60 * 1000;
+    const failures = listAuditLog({ limit: 100, action: 'login_failed' })
+      .filter(r => new Date(r.created_at).getTime() > last24h);
+    const lockouts = listAuditLog({ limit: 50, action: 'login_locked' })
+      .filter(r => new Date(r.created_at).getTime() > last24h);
+    if (failures.length >= 3 || lockouts.length > 0) {
+      securityAlerts = `
+        <div class="today-task-group" style="border-left:3px solid #dc2626;background:#fef2f2;padding:8px 12px;border-radius:4px;margin-bottom:10px">
+          <div class="today-task-group__head" style="color:#991b1b">
+            <span>⚠️ セキュリティアラート（24時間以内）</span>
+          </div>
+          <div style="font-size:12px;color:#991b1b">
+            ログイン失敗: ${failures.length}件 / ロック発生: ${lockouts.length}件
+            <br><small style="color:#7f1d1d">詳細は設定 → 監査ログを確認してください</small>
+          </div>
+        </div>
+      `;
+    }
+  }
+
   host.innerHTML = `
+    ${securityAlerts}
     ${renderGroup('船積予定（7日以内）', 'blue', etdSoon, r => {
       const d = fmtDays(r.due, today);
       return `<span style="color:${d.alert ? '#dc2626' : '#6b7280'}">${d.text}</span>`;
@@ -2466,6 +2535,95 @@ function setupUserMenu() {
     menu.classList.add('hidden');
     document.getElementById('password-modal').classList.remove('hidden');
   });
+  menu.querySelector('[data-user-action="manage-2fa"]').addEventListener('click', () => {
+    menu.classList.add('hidden');
+    open2FAModal();
+  });
+}
+
+// ============================================================================
+// 2FA (TOTP) setup UI
+// ============================================================================
+
+let TOTP_PENDING_SECRET = null;
+
+function setup2FA() {
+  document.querySelectorAll('[data-totp-close]').forEach(el => {
+    el.addEventListener('click', () => document.getElementById('totp-modal').classList.add('hidden'));
+  });
+  document.getElementById('form-totp-enable').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('totp-setup-error');
+    err.classList.add('hidden');
+    const u = getCurrentUser();
+    if (!u || !TOTP_PENDING_SECRET) return;
+    const code = String(e.target.elements.code.value).trim();
+    const ok = await verifyTotp(TOTP_PENDING_SECRET, code);
+    if (!ok) {
+      err.textContent = 'コードが正しくありません。時計のずれがあるかもしれません。';
+      err.classList.remove('hidden');
+      return;
+    }
+    await enableTotp(u.id, TOTP_PENDING_SECRET);
+    TOTP_PENDING_SECRET = null;
+    document.getElementById('totp-modal').classList.add('hidden');
+    toast('2段階認証を有効化しました', 'success');
+  });
+  document.getElementById('btn-totp-disable').addEventListener('click', async () => {
+    if (!confirm('2段階認証を無効化しますか？セキュリティが低下します。')) return;
+    const u = getCurrentUser();
+    if (!u) return;
+    await disableTotp(u.id);
+    document.getElementById('totp-modal').classList.add('hidden');
+    toast('2段階認証を無効化しました', 'success');
+  });
+}
+
+function open2FAModal() {
+  const u = getCurrentUser();
+  if (!u) return;
+  const modal = document.getElementById('totp-modal');
+  const status = document.getElementById('totp-status');
+  const setupBlock = document.getElementById('totp-setup');
+  const enableBtn = document.getElementById('btn-totp-enable');
+  const disableBtn = document.getElementById('btn-totp-disable');
+
+  if (u.totp_enabled) {
+    status.innerHTML = '<strong style="color:#059669">✓ 2FAが有効です</strong><br><span style="color:#6b7280">認証アプリが必要です。紛失した場合は管理者に無効化を依頼してください。</span>';
+    setupBlock.style.display = 'none';
+    enableBtn.classList.add('hidden');
+    disableBtn.classList.remove('hidden');
+    TOTP_PENDING_SECRET = null;
+  } else {
+    const secret = generateTotpSecret();
+    TOTP_PENDING_SECRET = secret;
+    const url = otpauthUrl({ secret, issuer: 'Export Doc Manager', account: u.username });
+    document.getElementById('totp-qr').src = qrImageUrl(url);
+    document.getElementById('totp-secret-display').textContent = secret;
+    status.innerHTML = '<strong style="color:#92400e">⚠️ 2FAは未設定</strong><br><span style="color:#6b7280">認証アプリでQRコードをスキャンし、表示された6桁コードで有効化してください。</span>';
+    setupBlock.style.display = '';
+    enableBtn.classList.remove('hidden');
+    disableBtn.classList.add('hidden');
+  }
+  modal.classList.remove('hidden');
+}
+
+// ============================================================================
+// Session monitor — checks idle/absolute timeouts every minute
+// ============================================================================
+
+function startSessionMonitor() {
+  // Update activity on any user interaction
+  ['click', 'keydown', 'pointerdown'].forEach(ev => {
+    document.addEventListener(ev, () => { touchSession(); }, { passive: true });
+  });
+  // Periodic check for timeout
+  setInterval(() => {
+    if (!touchSession()) {
+      alert('セッションがタイムアウトしました。再ログインしてください。');
+      window.location.reload();
+    }
+  }, 60 * 1000); // every minute
 }
 
 // ============================================================================
@@ -2617,19 +2775,36 @@ function renderUsersTable() {
   const tbody = document.querySelector('#table-users tbody');
   if (!tbody) return;
   const users = listUsers();
-  tbody.innerHTML = users.map(u => `
+  tbody.innerHTML = users.map(u => {
+    const locked = u.lock_until && new Date(u.lock_until).getTime() > Date.now();
+    const stateBadge = !u.is_active
+      ? '<span class="badge badge--red">無効</span>'
+      : locked ? '<span class="badge badge--amber">ロック中</span>'
+      : '<span class="badge badge--green">有効</span>';
+    return `
     <tr>
-      <td><strong>${escapeHtml(u.username)}</strong></td>
+      <td><strong>${escapeHtml(u.username)}</strong> ${u.totp_enabled ? '<span class="badge badge--indigo" title="2FA有効">🔐</span>' : ''}</td>
       <td>${escapeHtml(u.display_name || '')}</td>
       <td><span class="badge badge--${u.role === 'admin' ? 'indigo' : u.role === 'editor' ? 'blue' : 'gray'}">${escapeHtml(roleLabel(u.role))}</span></td>
-      <td>${u.is_active ? '<span class="badge badge--green">有効</span>' : '<span class="badge badge--red">無効</span>'}</td>
+      <td>${stateBadge}</td>
       <td style="font-size:11px;color:#6b7280">${u.last_login_at ? new Date(u.last_login_at).toLocaleString('ja-JP') : '—'}</td>
       <td style="font-size:11px;color:#6b7280">${u.created_at ? new Date(u.created_at).toLocaleDateString('ja-JP') : ''}</td>
-      <td><button class="btn" data-edit-user="${u.id}">編集</button></td>
-    </tr>
-  `).join('');
+      <td>
+        <button class="btn" data-edit-user="${u.id}">編集</button>
+        ${locked ? `<button class="btn btn--primary" data-unlock-user="${u.id}">ロック解除</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
   tbody.querySelectorAll('[data-edit-user]').forEach(btn => {
     btn.addEventListener('click', () => openUserEditor(Number(btn.dataset.editUser)));
+  });
+  tbody.querySelectorAll('[data-unlock-user]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('このユーザーのロックを解除しますか？')) return;
+      await unlockUser(Number(btn.dataset.unlockUser));
+      renderUsersTable();
+      toast('ロックを解除しました', 'success');
+    });
   });
 }
 
