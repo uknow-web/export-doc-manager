@@ -1186,7 +1186,7 @@ tr.row-favorite:hover { background: #fef3c7; }
 }
 
 .buyer-portal-wrap:empty::before {
-  content: "↑ Buyerを選択するとプレビューが表示されます";
+  content: "↑ 上のドロップダウンでBuyerを選択するとプレビューが表示されます";
   display: block;
   text-align: center;
   color: #9ca3af;

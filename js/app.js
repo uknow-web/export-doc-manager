@@ -3384,27 +3384,29 @@ async function decryptBytes(encBytes, password) {
 // Buyer Portal (preview mockup — admin view of what Buyers will see)
 // ============================================================================
 
-// Map internal status keys to customer-friendly Japanese labels
+// Map internal status keys to customer-friendly English labels.
+// The Buyer portal is English-only because buyers are typically overseas
+// customers; the admin UI remains in Japanese.
 const BUYER_STATUS_LABELS = {
-  inquiry:        'お問い合わせ受付',
-  sc_issued:      '発注確認書 発行済み',
-  invoice_issued: 'ご請求書 発行済み',
-  si_issued:      '船積準備中',
-  shipped:        '船積完了',
-  arrived:        '入港済み',
-  completed:      'お取引完了',
-  cancelled:      'キャンセル',
+  inquiry:        'Order Received',
+  sc_issued:      'Sales Confirmation Issued',
+  invoice_issued: 'Invoice Issued',
+  si_issued:      'Preparing for Shipment',
+  shipped:        'Shipped',
+  arrived:        'Arrived at Port',
+  completed:      'Completed',
+  cancelled:      'Cancelled',
 };
 
 // Progress steps shown in the buyer portal timeline (excluding cancelled)
 const BUYER_TIMELINE_STEPS = [
-  { key: 'inquiry',        label: '受付',       short: '①' },
-  { key: 'sc_issued',      label: 'SC発行',    short: '②' },
-  { key: 'invoice_issued', label: 'Invoice',   short: '③' },
-  { key: 'si_issued',      label: 'SI',        short: '④' },
-  { key: 'shipped',        label: '船積',      short: '⑤' },
-  { key: 'arrived',        label: '入港',      short: '⑥' },
-  { key: 'completed',      label: '完了',      short: '✓' },
+  { key: 'inquiry',        label: 'Order',   short: '①' },
+  { key: 'sc_issued',      label: 'SC',      short: '②' },
+  { key: 'invoice_issued', label: 'Invoice', short: '③' },
+  { key: 'si_issued',      label: 'SI',      short: '④' },
+  { key: 'shipped',        label: 'Shipped', short: '⑤' },
+  { key: 'arrived',        label: 'Arrived', short: '⑥' },
+  { key: 'completed',      label: 'Done',    short: '✓' },
 ];
 
 function setupBuyerPortal() {
@@ -3445,7 +3447,7 @@ function getCasesForBuyer(buyerId) {
 function renderBuyerPortal(buyerId) {
   const host = document.getElementById('buyer-portal-content');
   const buyer = getParty(buyerId);
-  if (!buyer) { host.innerHTML = '<div class="bp-empty">Buyer情報が見つかりません</div>'; return; }
+  if (!buyer) { host.innerHTML = '<div class="bp-empty">Buyer not found.</div>'; return; }
   const cases = getCasesForBuyer(buyerId);
 
   // Summary stats
@@ -3465,10 +3467,10 @@ function renderBuyerPortal(buyerId) {
   host.innerHTML = `
     <div class="bp-header">
       <div>
-        <h1 class="bp-header__title">ようこそ、${escapeHtml(buyer.company_name)} 様</h1>
+        <h1 class="bp-header__title">Welcome, ${escapeHtml(buyer.company_name)}</h1>
         <div class="bp-header__sub">
-          お取引中の車両: ${totalCars}台
-          ${buyer.attn_name ? ` · 担当: ${escapeHtml(buyer.attn_name)}様` : ''}
+          ${totalCars} vehicle${totalCars === 1 ? '' : 's'} on file
+          ${buyer.attn_name ? ` · Attn: ${escapeHtml(buyer.attn_name)}` : ''}
         </div>
       </div>
       <div class="bp-header__logo">🚢</div>
@@ -3476,30 +3478,30 @@ function renderBuyerPortal(buyerId) {
 
     <div class="bp-summary">
       <div class="bp-summary__card">
-        <div class="bp-summary__label">お取引中</div>
-        <div class="bp-summary__value">${inProgress}<span style="font-size:14px;color:#94a3b8">台</span></div>
+        <div class="bp-summary__label">In Progress</div>
+        <div class="bp-summary__value">${inProgress}<span style="font-size:14px;color:#94a3b8"> cars</span></div>
       </div>
       <div class="bp-summary__card">
-        <div class="bp-summary__label">船積完了</div>
-        <div class="bp-summary__value bp-summary__value--green">${shipped}<span style="font-size:14px;color:#94a3b8">台</span></div>
+        <div class="bp-summary__label">Shipped</div>
+        <div class="bp-summary__value bp-summary__value--green">${shipped}<span style="font-size:14px;color:#94a3b8"> cars</span></div>
       </div>
       <div class="bp-summary__card">
-        <div class="bp-summary__label">お取引完了</div>
-        <div class="bp-summary__value">${completed}<span style="font-size:14px;color:#94a3b8">台</span></div>
+        <div class="bp-summary__label">Completed</div>
+        <div class="bp-summary__value">${completed}<span style="font-size:14px;color:#94a3b8"> cars</span></div>
       </div>
       <div class="bp-summary__card">
-        <div class="bp-summary__label">未決済残高</div>
+        <div class="bp-summary__label">Outstanding Balance</div>
         <div class="bp-summary__value bp-summary__value--amber">¥${unpaidTotal.toLocaleString()}</div>
-        <div class="bp-summary__sub">合計請求からの未払い額</div>
+        <div class="bp-summary__sub">Unpaid total across invoices</div>
       </div>
     </div>
 
-    <h2 class="bp-section-title">📋 ご購入車両一覧</h2>
+    <h2 class="bp-section-title">📋 Your Vehicles</h2>
 
     ${cases.length === 0 ? `
       <div class="bp-empty">
         <div class="bp-empty__icon">🚗</div>
-        <div>現在、ご購入車両はありません。</div>
+        <div>No vehicles on file yet.</div>
       </div>
     ` : `
       <div class="bp-car-list">
@@ -3508,7 +3510,7 @@ function renderBuyerPortal(buyerId) {
     `}
 
     <div class="bp-footer">
-      お問い合わせ: ${escapeHtml(getSetting('mail_from', 'info@kmt.kyoto'))}<br>
+      Contact: ${escapeHtml(getSetting('mail_from', 'info@kmt.kyoto'))}<br>
       Powered by Export Document Manager
     </div>
   `;
@@ -3570,16 +3572,16 @@ function renderBuyerCarCard(c, today) {
 
   const countdownText = (days, label) => {
     if (days == null) return '';
-    if (days < 0) return `<div class="bp-date__countdown bp-date__countdown--urgent">${-days}日超過</div>`;
-    if (days === 0) return `<div class="bp-date__countdown bp-date__countdown--urgent">本日</div>`;
-    return `<div class="bp-date__countdown">あと${days}日</div>`;
+    if (days < 0) return `<div class="bp-date__countdown bp-date__countdown--urgent">${-days} day${-days === 1 ? '' : 's'} overdue</div>`;
+    if (days === 0) return `<div class="bp-date__countdown bp-date__countdown--urgent">Today</div>`;
+    return `<div class="bp-date__countdown">in ${days} day${days === 1 ? '' : 's'}</div>`;
   };
 
   return `
     <div class="bp-car">
       <div class="bp-car__head">
         <div>
-          <h3 class="bp-car__title">${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim()) || '車両情報未登録'}</h3>
+          <h3 class="bp-car__title">${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim()) || 'Vehicle info pending'}</h3>
           <span class="bp-car__code">${escapeHtml(c.case_code || '#' + c.id)}</span>
           ${c.invoice_ref_no ? `<span class="bp-car__code" style="margin-left:4px">Ref: ${escapeHtml(c.invoice_ref_no)}</span>` : ''}
         </div>
@@ -3589,31 +3591,31 @@ function renderBuyerCarCard(c, today) {
       <div class="bp-car__body">
         <div class="bp-car__photos${photos.length === 0 ? ' bp-car__photos--empty' : ''}">
           ${photos.length === 0 ? `
-            📸<br>写真は準備中です
+            📸<br>Photos coming soon
           ` : shownPhotos.map(p => `
             <div class="bp-car__photo" data-bp-photo="${p.id}">
               <img src="${p.data_url}" alt="${escapeHtml(p.caption || '')}">
             </div>
           `).join('') + (morePhotos > 0 ? `
-            <div class="bp-car__photo--more" data-bp-more-photos="${c.id}">+${morePhotos}枚</div>
+            <div class="bp-car__photo--more" data-bp-more-photos="${c.id}">+${morePhotos} more</div>
           ` : '')}
         </div>
 
         <div class="bp-car__info">
           <!-- Specs grid -->
           <div class="bp-specs">
-            ${c.year_month ? `<div><div class="bp-specs__label">年式</div><div class="bp-specs__value">${escapeHtml(c.year_month)}</div></div>` : ''}
-            ${c.chassis_no ? `<div><div class="bp-specs__label">車台番号</div><div class="bp-specs__value">${escapeHtml(c.chassis_no)}</div></div>` : ''}
-            ${c.exterior_color ? `<div><div class="bp-specs__label">カラー</div><div class="bp-specs__value">${escapeHtml(c.exterior_color)}</div></div>` : ''}
-            ${c.engine_capacity ? `<div><div class="bp-specs__label">排気量</div><div class="bp-specs__value">${escapeHtml(c.engine_capacity)}</div></div>` : ''}
-            ${c.mileage ? `<div><div class="bp-specs__label">走行距離</div><div class="bp-specs__value">${escapeHtml(c.mileage)}</div></div>` : ''}
-            ${c.fuel ? `<div><div class="bp-specs__label">燃料</div><div class="bp-specs__value">${escapeHtml(c.fuel)}</div></div>` : ''}
+            ${c.year_month ? `<div><div class="bp-specs__label">Year</div><div class="bp-specs__value">${escapeHtml(c.year_month)}</div></div>` : ''}
+            ${c.chassis_no ? `<div><div class="bp-specs__label">Chassis No.</div><div class="bp-specs__value">${escapeHtml(c.chassis_no)}</div></div>` : ''}
+            ${c.exterior_color ? `<div><div class="bp-specs__label">Color</div><div class="bp-specs__value">${escapeHtml(c.exterior_color)}</div></div>` : ''}
+            ${c.engine_capacity ? `<div><div class="bp-specs__label">Engine</div><div class="bp-specs__value">${escapeHtml(c.engine_capacity)}</div></div>` : ''}
+            ${c.mileage ? `<div><div class="bp-specs__label">Mileage</div><div class="bp-specs__value">${escapeHtml(c.mileage)}</div></div>` : ''}
+            ${c.fuel ? `<div><div class="bp-specs__label">Fuel</div><div class="bp-specs__value">${escapeHtml(c.fuel)}</div></div>` : ''}
           </div>
 
           <!-- Progress timeline -->
           ${!isCancelled ? `
           <div class="bp-timeline">
-            <div style="font-size:11px;color:#64748b;margin-bottom:4px">ご進捗状況</div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">Progress</div>
             <div class="bp-timeline__track" style="--progress:${progressPct}%">
               ${BUYER_TIMELINE_STEPS.map((step, i) => {
                 const done = i < currentIdx;
@@ -3628,14 +3630,14 @@ function renderBuyerCarCard(c, today) {
               }).join('')}
             </div>
           </div>
-          ` : `<div class="bp-note">このお取引はキャンセルされました。</div>`}
+          ` : `<div class="bp-note">This transaction has been cancelled.</div>`}
 
           <!-- Payment progress -->
           ${due > 0 ? `
           <div class="bp-payment">
             <div class="bp-payment__amounts">
-              <span>お支払い状況: <strong>¥${paid.toLocaleString()}</strong> / ¥${due.toLocaleString()}</span>
-              <span style="color:${remaining === 0 ? '#059669' : '#d97706'}">${remaining === 0 ? '✓ 完済' : `残 ¥${remaining.toLocaleString()}`}</span>
+              <span>Payment: <strong>¥${paid.toLocaleString()}</strong> / ¥${due.toLocaleString()}</span>
+              <span style="color:${remaining === 0 ? '#059669' : '#d97706'}">${remaining === 0 ? '✓ Paid in full' : `Balance ¥${remaining.toLocaleString()}`}</span>
             </div>
             <div class="bp-payment__bar">
               <div class="bp-payment__fill" style="width:${payPct}%"></div>
@@ -3647,27 +3649,27 @@ function renderBuyerCarCard(c, today) {
           <div class="bp-dates">
             ${c.invoice_date ? `
               <div class="bp-date">
-                <div class="bp-date__label">Invoice日付</div>
+                <div class="bp-date__label">Invoice Date</div>
                 <div class="bp-date__value">${escapeHtml(c.invoice_date)}</div>
               </div>
             ` : ''}
             ${c.etd ? `
               <div class="bp-date">
-                <div class="bp-date__label">出港予定 (ETD)</div>
+                <div class="bp-date__label">ETD</div>
                 <div class="bp-date__value">${escapeHtml(c.etd)}</div>
                 ${countdownText(etdDays, 'ETD')}
               </div>
             ` : ''}
             ${c.eta ? `
               <div class="bp-date">
-                <div class="bp-date__label">入港予定 (ETA)</div>
+                <div class="bp-date__label">ETA</div>
                 <div class="bp-date__value">${escapeHtml(c.eta)}</div>
                 ${countdownText(etaDays, 'ETA')}
               </div>
             ` : ''}
             ${c.payment_due_date ? `
               <div class="bp-date">
-                <div class="bp-date__label">お支払い期日</div>
+                <div class="bp-date__label">Payment Due</div>
                 <div class="bp-date__value">${escapeHtml(c.payment_due_date)}</div>
                 ${countdownText(payDueDays, 'Payment')}
               </div>
@@ -3676,12 +3678,12 @@ function renderBuyerCarCard(c, today) {
 
           <!-- Documents (mockup — real links will be added when portal goes live) -->
           <div>
-            <div style="font-size:11px;color:#64748b;margin-bottom:6px">書類ダウンロード</div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:6px">Documents</div>
             <div class="bp-docs">
               ${DOC_TYPES.filter(t => t.implemented).map(t => {
                 const doc = getCaseDoc(c.id, t.key);
                 const enabled = !!doc?.buyer_id;
-                return `<a class="bp-doc-link ${enabled ? '' : 'bp-doc-link--disabled'}" title="${enabled ? 'PDFダウンロード' : '未発行'}">📄 ${escapeHtml(t.label)}</a>`;
+                return `<a class="bp-doc-link ${enabled ? '' : 'bp-doc-link--disabled'}" title="${enabled ? 'Download PDF' : 'Not issued yet'}">📄 ${escapeHtml(t.label)}</a>`;
               }).join('')}
             </div>
           </div>
