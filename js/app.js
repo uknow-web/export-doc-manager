@@ -12,7 +12,7 @@ import {
   replaceCaseEvents, listCaseEvents,
   savePayment, deletePayment, listPayments, paymentsTotal,
   saveCost, deleteCost, listCosts, costsTotal,
-  savePhoto, deletePhoto, listPhotos, updatePhotoCaption,
+  savePhoto, deletePhoto, listPhotos, listPhotosSummary, updatePhotoCaption,
   logDocIssued, listDocIssueLog,
   getSetting, setSetting, nextSequenceFromPattern,
   query, run,
@@ -93,6 +93,7 @@ const DOC_TYPES = [
   setupKeyboardShortcuts();
   startReminderScheduler();
   setupAuthRouting();
+  setupBuyerPortal();
   renderCases();
   renderParties();
   renderVehicleModels();
@@ -355,6 +356,7 @@ function switchTab(name) {
   if (name === 'dashboard')   renderDashboard();
   if (name === 'receivables') renderReceivables();
   if (name === 'settings')    renderSettings();
+  if (name === 'buyer-portal') renderBuyerPortalSelector();
   if (name === 'editor')      { populateSellerSelect(); populateVehicleModelSelect(); populateNotifyPartySelect(); }
 }
 
@@ -629,7 +631,7 @@ function renderCases() {
   const rows = listCases(q, filters);
   const tbody = document.querySelector('#table-cases tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#6b7280;padding:20px">該当する案件がありません。</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#6b7280;padding:20px">該当する案件がありません。</td></tr>';
   } else {
     tbody.innerHTML = rows.map(c => {
       const prog = c.progress_status || 'inquiry';
@@ -639,8 +641,17 @@ function renderCases() {
         ? tags.slice(0, 3).map(t => `<span class="tag-chip">${escapeHtml(t)}</span>`).join('')
           + (tags.length > 3 ? `<span class="tag-chip" title="${escapeHtml(tags.slice(3).join(', '))}">+${tags.length - 3}</span>` : '')
         : '';
+      const photos = listPhotosSummary(c.id);
+      const firstPhoto = photos.length > 0 ? listPhotos(c.id)[0] : null;
+      const thumbHtml = firstPhoto
+        ? `<div class="case-thumb" title="${photos.length}枚の写真">
+             <img src="${firstPhoto.data_url}" alt="">
+             ${photos.length > 1 ? `<span class="case-thumb__count">+${photos.length - 1}</span>` : ''}
+           </div>`
+        : '<div class="case-thumb case-thumb--empty" title="写真なし">📷</div>';
       return `
       <tr class="${c.is_favorite ? 'row-favorite' : ''}">
+        <td class="case-thumb-cell">${thumbHtml}</td>
         <td>
           <button class="fav-star ${c.is_favorite ? 'fav-star--on' : ''}" data-fav-case="${c.id}" title="${c.is_favorite ? 'お気に入り解除' : 'お気に入りに追加'}">${c.is_favorite ? '★' : '☆'}</button>
           ${escapeHtml(c.case_code || '')}
@@ -3367,6 +3378,327 @@ async function decryptBytes(encBytes, password) {
   const key  = await deriveCryptoKey(password, salt);
   const pt   = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
   return new Uint8Array(pt);
+}
+
+// ============================================================================
+// Buyer Portal (preview mockup — admin view of what Buyers will see)
+// ============================================================================
+
+// Map internal status keys to customer-friendly Japanese labels
+const BUYER_STATUS_LABELS = {
+  inquiry:        'お問い合わせ受付',
+  sc_issued:      '発注確認書 発行済み',
+  invoice_issued: 'ご請求書 発行済み',
+  si_issued:      '船積準備中',
+  shipped:        '船積完了',
+  arrived:        '入港済み',
+  completed:      'お取引完了',
+  cancelled:      'キャンセル',
+};
+
+// Progress steps shown in the buyer portal timeline (excluding cancelled)
+const BUYER_TIMELINE_STEPS = [
+  { key: 'inquiry',        label: '受付',       short: '①' },
+  { key: 'sc_issued',      label: 'SC発行',    short: '②' },
+  { key: 'invoice_issued', label: 'Invoice',   short: '③' },
+  { key: 'si_issued',      label: 'SI',        short: '④' },
+  { key: 'shipped',        label: '船積',      short: '⑤' },
+  { key: 'arrived',        label: '入港',      short: '⑥' },
+  { key: 'completed',      label: '完了',      short: '✓' },
+];
+
+function setupBuyerPortal() {
+  const sel = document.getElementById('buyer-portal-select');
+  if (!sel) return;
+  sel.addEventListener('change', () => {
+    const buyerId = Number(sel.value) || null;
+    if (buyerId) {
+      renderBuyerPortal(buyerId);
+    } else {
+      document.getElementById('buyer-portal-content').innerHTML = '';
+    }
+  });
+}
+
+function renderBuyerPortalSelector() {
+  if (!canManageUsers(getCurrentUser())) return;
+  const sel = document.getElementById('buyer-portal-select');
+  const buyers = listParties('buyer');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">Buyerを選択してください</option>' +
+    buyers.map(b => `<option value="${b.id}">${escapeHtml(b.company_name)}</option>`).join('');
+  if (current) sel.value = current;
+}
+
+// Collect all cases where this buyer appears in any document's buyer_id
+function getCasesForBuyer(buyerId) {
+  const allCases = listCases();
+  return allCases.filter(c => {
+    for (const t of DOC_TYPES) {
+      const d = getCaseDoc(c.id, t.key);
+      if (d?.buyer_id === buyerId) return true;
+    }
+    return false;
+  });
+}
+
+function renderBuyerPortal(buyerId) {
+  const host = document.getElementById('buyer-portal-content');
+  const buyer = getParty(buyerId);
+  if (!buyer) { host.innerHTML = '<div class="bp-empty">Buyer情報が見つかりません</div>'; return; }
+  const cases = getCasesForBuyer(buyerId);
+
+  // Summary stats
+  const totalCars = cases.length;
+  const inProgress = cases.filter(c => !['completed', 'cancelled'].includes(c.progress_status)).length;
+  const shipped = cases.filter(c => ['shipped', 'arrived', 'completed'].includes(c.progress_status)).length;
+  const completed = cases.filter(c => c.progress_status === 'completed').length;
+  const unpaidTotal = cases.reduce((s, c) => {
+    if (c.payment_status === 'cancelled') return s;
+    const due = Number(c.amount_jpy) || 0;
+    const paid = paymentsTotal(c.id);
+    return s + Math.max(0, due - paid);
+  }, 0);
+
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  host.innerHTML = `
+    <div class="bp-header">
+      <div>
+        <h1 class="bp-header__title">ようこそ、${escapeHtml(buyer.company_name)} 様</h1>
+        <div class="bp-header__sub">
+          お取引中の車両: ${totalCars}台
+          ${buyer.attn_name ? ` · 担当: ${escapeHtml(buyer.attn_name)}様` : ''}
+        </div>
+      </div>
+      <div class="bp-header__logo">🚢</div>
+    </div>
+
+    <div class="bp-summary">
+      <div class="bp-summary__card">
+        <div class="bp-summary__label">お取引中</div>
+        <div class="bp-summary__value">${inProgress}<span style="font-size:14px;color:#94a3b8">台</span></div>
+      </div>
+      <div class="bp-summary__card">
+        <div class="bp-summary__label">船積完了</div>
+        <div class="bp-summary__value bp-summary__value--green">${shipped}<span style="font-size:14px;color:#94a3b8">台</span></div>
+      </div>
+      <div class="bp-summary__card">
+        <div class="bp-summary__label">お取引完了</div>
+        <div class="bp-summary__value">${completed}<span style="font-size:14px;color:#94a3b8">台</span></div>
+      </div>
+      <div class="bp-summary__card">
+        <div class="bp-summary__label">未決済残高</div>
+        <div class="bp-summary__value bp-summary__value--amber">¥${unpaidTotal.toLocaleString()}</div>
+        <div class="bp-summary__sub">合計請求からの未払い額</div>
+      </div>
+    </div>
+
+    <h2 class="bp-section-title">📋 ご購入車両一覧</h2>
+
+    ${cases.length === 0 ? `
+      <div class="bp-empty">
+        <div class="bp-empty__icon">🚗</div>
+        <div>現在、ご購入車両はありません。</div>
+      </div>
+    ` : `
+      <div class="bp-car-list">
+        ${cases.map(c => renderBuyerCarCard(c, today)).join('')}
+      </div>
+    `}
+
+    <div class="bp-footer">
+      お問い合わせ: ${escapeHtml(getSetting('mail_from', 'info@kmt.kyoto'))}<br>
+      Powered by Export Document Manager
+    </div>
+  `;
+
+  // Wire up photo lightboxes
+  host.querySelectorAll('[data-bp-photo]').forEach(el => {
+    el.addEventListener('click', () => {
+      const photoId = Number(el.dataset.bpPhoto);
+      const photo = query('SELECT * FROM photos WHERE id=?', [photoId])[0];
+      if (photo) openBuyerLightbox(photo.data_url, photo.caption || '');
+    });
+  });
+  // "More photos" link → expand to show all in a lightbox gallery
+  host.querySelectorAll('[data-bp-more-photos]').forEach(el => {
+    el.addEventListener('click', () => {
+      const caseId = Number(el.dataset.bpMorePhotos);
+      const allPhotos = listPhotos(caseId);
+      if (!allPhotos.length) return;
+      openBuyerLightbox(allPhotos[0].data_url, `${allPhotos.length}枚の写真`);
+    });
+  });
+}
+
+function renderBuyerCarCard(c, today) {
+  const photos = listPhotos(c.id);
+  const paid = paymentsTotal(c.id);
+  const due = Number(c.amount_jpy) || 0;
+  const remaining = Math.max(0, due - paid);
+  const payPct = due > 0 ? Math.min(100, Math.round((paid / due) * 100)) : 0;
+
+  const status = c.progress_status || 'inquiry';
+  const statusLabel = BUYER_STATUS_LABELS[status] || status;
+  const progColor = progressColor(status);
+  const payColor  = paymentColor(c.payment_status || 'unpaid');
+
+  // Timeline progress — find current step index
+  const currentIdx = BUYER_TIMELINE_STEPS.findIndex(s => s.key === status);
+  const isCancelled = status === 'cancelled';
+  const progressPct = isCancelled
+    ? 0
+    : (currentIdx >= 0
+        ? (currentIdx / (BUYER_TIMELINE_STEPS.length - 1)) * 100
+        : 0);
+
+  // Photos display (first 3 + "more" link)
+  const shownPhotos = photos.slice(0, 3);
+  const morePhotos = photos.length - 3;
+
+  // Dates & countdown
+  const daysUntil = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (Number.isNaN(+d)) return null;
+    return Math.floor((d - today) / 86400000);
+  };
+  const etdDays = daysUntil(c.etd);
+  const etaDays = daysUntil(c.eta);
+  const payDueDays = daysUntil(c.payment_due_date);
+
+  const countdownText = (days, label) => {
+    if (days == null) return '';
+    if (days < 0) return `<div class="bp-date__countdown bp-date__countdown--urgent">${-days}日超過</div>`;
+    if (days === 0) return `<div class="bp-date__countdown bp-date__countdown--urgent">本日</div>`;
+    return `<div class="bp-date__countdown">あと${days}日</div>`;
+  };
+
+  return `
+    <div class="bp-car">
+      <div class="bp-car__head">
+        <div>
+          <h3 class="bp-car__title">${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim()) || '車両情報未登録'}</h3>
+          <span class="bp-car__code">${escapeHtml(c.case_code || '#' + c.id)}</span>
+          ${c.invoice_ref_no ? `<span class="bp-car__code" style="margin-left:4px">Ref: ${escapeHtml(c.invoice_ref_no)}</span>` : ''}
+        </div>
+        <span class="bp-car__status-pill badge badge--${progColor}">${escapeHtml(statusLabel)}</span>
+      </div>
+
+      <div class="bp-car__body">
+        <div class="bp-car__photos${photos.length === 0 ? ' bp-car__photos--empty' : ''}">
+          ${photos.length === 0 ? `
+            📸<br>写真は準備中です
+          ` : shownPhotos.map(p => `
+            <div class="bp-car__photo" data-bp-photo="${p.id}">
+              <img src="${p.data_url}" alt="${escapeHtml(p.caption || '')}">
+            </div>
+          `).join('') + (morePhotos > 0 ? `
+            <div class="bp-car__photo--more" data-bp-more-photos="${c.id}">+${morePhotos}枚</div>
+          ` : '')}
+        </div>
+
+        <div class="bp-car__info">
+          <!-- Specs grid -->
+          <div class="bp-specs">
+            ${c.year_month ? `<div><div class="bp-specs__label">年式</div><div class="bp-specs__value">${escapeHtml(c.year_month)}</div></div>` : ''}
+            ${c.chassis_no ? `<div><div class="bp-specs__label">車台番号</div><div class="bp-specs__value">${escapeHtml(c.chassis_no)}</div></div>` : ''}
+            ${c.exterior_color ? `<div><div class="bp-specs__label">カラー</div><div class="bp-specs__value">${escapeHtml(c.exterior_color)}</div></div>` : ''}
+            ${c.engine_capacity ? `<div><div class="bp-specs__label">排気量</div><div class="bp-specs__value">${escapeHtml(c.engine_capacity)}</div></div>` : ''}
+            ${c.mileage ? `<div><div class="bp-specs__label">走行距離</div><div class="bp-specs__value">${escapeHtml(c.mileage)}</div></div>` : ''}
+            ${c.fuel ? `<div><div class="bp-specs__label">燃料</div><div class="bp-specs__value">${escapeHtml(c.fuel)}</div></div>` : ''}
+          </div>
+
+          <!-- Progress timeline -->
+          ${!isCancelled ? `
+          <div class="bp-timeline">
+            <div style="font-size:11px;color:#64748b;margin-bottom:4px">ご進捗状況</div>
+            <div class="bp-timeline__track" style="--progress:${progressPct}%">
+              ${BUYER_TIMELINE_STEPS.map((step, i) => {
+                const done = i < currentIdx;
+                const current = i === currentIdx;
+                const cls = done ? 'bp-timeline__step--done' : current ? 'bp-timeline__step--current' : '';
+                return `
+                  <div class="bp-timeline__step ${cls}">
+                    <div class="bp-timeline__dot">${done ? '✓' : step.short}</div>
+                    <div class="bp-timeline__label">${escapeHtml(step.label)}</div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+          ` : `<div class="bp-note">このお取引はキャンセルされました。</div>`}
+
+          <!-- Payment progress -->
+          ${due > 0 ? `
+          <div class="bp-payment">
+            <div class="bp-payment__amounts">
+              <span>お支払い状況: <strong>¥${paid.toLocaleString()}</strong> / ¥${due.toLocaleString()}</span>
+              <span style="color:${remaining === 0 ? '#059669' : '#d97706'}">${remaining === 0 ? '✓ 完済' : `残 ¥${remaining.toLocaleString()}`}</span>
+            </div>
+            <div class="bp-payment__bar">
+              <div class="bp-payment__fill" style="width:${payPct}%"></div>
+            </div>
+          </div>
+          ` : ''}
+
+          <!-- Key dates -->
+          <div class="bp-dates">
+            ${c.invoice_date ? `
+              <div class="bp-date">
+                <div class="bp-date__label">Invoice日付</div>
+                <div class="bp-date__value">${escapeHtml(c.invoice_date)}</div>
+              </div>
+            ` : ''}
+            ${c.etd ? `
+              <div class="bp-date">
+                <div class="bp-date__label">出港予定 (ETD)</div>
+                <div class="bp-date__value">${escapeHtml(c.etd)}</div>
+                ${countdownText(etdDays, 'ETD')}
+              </div>
+            ` : ''}
+            ${c.eta ? `
+              <div class="bp-date">
+                <div class="bp-date__label">入港予定 (ETA)</div>
+                <div class="bp-date__value">${escapeHtml(c.eta)}</div>
+                ${countdownText(etaDays, 'ETA')}
+              </div>
+            ` : ''}
+            ${c.payment_due_date ? `
+              <div class="bp-date">
+                <div class="bp-date__label">お支払い期日</div>
+                <div class="bp-date__value">${escapeHtml(c.payment_due_date)}</div>
+                ${countdownText(payDueDays, 'Payment')}
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Documents (mockup — real links will be added when portal goes live) -->
+          <div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:6px">書類ダウンロード</div>
+            <div class="bp-docs">
+              ${DOC_TYPES.filter(t => t.implemented).map(t => {
+                const doc = getCaseDoc(c.id, t.key);
+                const enabled = !!doc?.buyer_id;
+                return `<a class="bp-doc-link ${enabled ? '' : 'bp-doc-link--disabled'}" title="${enabled ? 'PDFダウンロード' : '未発行'}">📄 ${escapeHtml(t.label)}</a>`;
+              }).join('')}
+            </div>
+          </div>
+
+          ${c.remark ? `<div class="bp-note">📝 ${escapeHtml(c.remark).replace(/\n/g, '<br>').slice(0, 300)}</div>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function openBuyerLightbox(src, caption) {
+  const lb = document.createElement('div');
+  lb.className = 'bp-lightbox';
+  lb.innerHTML = `<img src="${src}" alt="${escapeHtml(caption)}">`;
+  lb.addEventListener('click', () => lb.remove());
+  document.body.appendChild(lb);
 }
 
 // ============================================================================

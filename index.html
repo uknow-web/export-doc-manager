@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=18">
-<link rel="stylesheet" href="css/documents.css?v=18">
+<link rel="stylesheet" href="css/app.css?v=19">
+<link rel="stylesheet" href="css/documents.css?v=19">
 </head>
 <body>
 
@@ -120,6 +120,7 @@
   <button class="tab" data-tab="models">車両モデル管理</button>
   <button class="tab" data-tab="editor">案件編集</button>
   <button class="tab" data-tab="preview">書類プレビュー</button>
+  <button class="tab admin-only" data-tab="buyer-portal">Buyerポータル</button>
   <button class="tab" data-tab="settings">設定</button>
 </nav>
 
@@ -174,6 +175,7 @@
     <table id="table-cases" class="data-table">
       <thead>
         <tr>
+          <th style="width:60px">写真</th>
           <th>Case Code</th>
           <th>Invoice Ref No.</th>
           <th>Vehicle</th>
@@ -668,6 +670,29 @@
         <button type="button" class="btn btn--danger hidden" id="btn-case-delete">この案件を削除</button>
       </div>
     </form>
+  </section>
+
+  <!-- =========================  BUYER PORTAL PREVIEW  ========================= -->
+  <section id="tab-buyer-portal" class="tab-pane admin-only">
+    <div class="portal-admin-banner">
+      <div class="portal-admin-banner__title">
+        🎭 <strong>プレビューモード</strong>
+        <span style="font-weight:normal;color:#6b7280">実Buyerにはこのような自分専用ページが表示されます</span>
+      </div>
+      <div class="portal-admin-banner__controls">
+        <label style="display:flex;gap:6px;align-items:center">
+          Buyer選択:
+          <select id="buyer-portal-select" class="input" style="min-width:280px">
+            <option value="">Buyerを選択してください</option>
+          </select>
+        </label>
+        <div style="font-size:11px;color:#9ca3af;margin-left:auto">
+          💡 本実装ではBuyerが <code>/buyer/login</code> から自分でログインします
+        </div>
+      </div>
+    </div>
+
+    <div id="buyer-portal-content" class="buyer-portal-wrap"></div>
   </section>
 
   <!-- =========================  SETTINGS  ========================= -->

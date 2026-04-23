@@ -963,6 +963,59 @@ export const HELP_SECTIONS = [
     `,
   },
 
+  {
+    id: 'buyer-portal-preview',
+    title: 'Buyerマイページ（プレビュー）',
+    content: `
+<h1>Buyerマイページ（プレビュー）</h1>
+<p>現在は<strong>プレビュー版</strong>として、管理者が選択したBuyerに対してどのようなマイページが表示されるかを確認できます。本実装のデザイン・機能を固める前の検討用です。</p>
+
+<h2>プレビューの使い方</h2>
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>ヘッダーの「Buyerポータル」タブを開く（管理者のみ）</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>「Buyer選択」ドロップダウンから対象のBuyerを選ぶ</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>そのBuyerが「自分のマイページ」として見るであろう画面がプレビュー表示される</p></div>
+</div>
+
+<h2>Buyerに表示される内容</h2>
+<ul>
+  <li><strong>サマリーカード</strong>: お取引中 / 船積完了 / お取引完了 / 未決済残高</li>
+  <li><strong>車両一覧</strong>: Buyerのcaseに紐づく全車両</li>
+  <li><strong>写真ギャラリー</strong>: 案件に登録された写真（最大3枚表示 + 残り枚数）</li>
+  <li><strong>車両スペック</strong>: 年式・車台番号・カラー・排気量・走行距離・燃料</li>
+  <li><strong>進捗タイムライン</strong>: 受付 → SC → Invoice → SI → 船積 → 入港 → 完了の可視化</li>
+  <li><strong>お支払いバー</strong>: 請求額に対する入金率をプログレスバーで表示</li>
+  <li><strong>重要日付</strong>: Invoice日付・ETD・ETA・お支払い期日（カウントダウン付き）</li>
+  <li><strong>書類ダウンロード</strong>: 発行済み書類のPDFダウンロードリンク（本実装時）</li>
+</ul>
+
+<h2>本実装時の追加機能（予定）</h2>
+<ul>
+  <li>Buyerごとの専用ログインURL（<code>/buyer/login</code>）</li>
+  <li>管理者がBuyerアカウントを発行 → 初回パスワード設定URLをメール送付</li>
+  <li>Buyerは自分のメールで初期設定後、マイページにアクセス</li>
+  <li>書類PDFの直接ダウンロード</li>
+  <li>Buyer自身での連絡先更新・問い合わせ送信</li>
+</ul>
+
+<h2>管理者が事前にやること</h2>
+<ul>
+  <li>「Seller / Buyer 管理」でBuyerを登録</li>
+  <li>案件編集の「書類ごとのBuyer」タブでBuyerを指定</li>
+  <li>案件に写真を登録（写真タブから）</li>
+</ul>
+
+<blockquote>💡 ダッシュボードのカンバンボードとBuyerポータルの進捗は連動しています。Buyerは常に最新の状況を自分で確認でき、問い合わせを減らせます。</blockquote>
+    `,
+  },
+
   // ===== SECURITY =====
   { group: 'セキュリティ' },
   {
