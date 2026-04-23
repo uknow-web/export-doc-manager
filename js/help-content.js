@@ -970,6 +970,16 @@ export const HELP_SECTIONS = [
 <h1>Buyerマイページ（プレビュー）</h1>
 <p>現在は<strong>プレビュー版</strong>として、管理者が選択したBuyerに対してどのようなマイページが表示されるかを確認できます。本実装のデザイン・機能を固める前の検討用です。</p>
 
+<blockquote>💡 表示は全て英語です（海外顧客向けの想定）。管理者画面のプレビューモードは日本語。</blockquote>
+
+<h2>Buyerと案件の紐付け</h2>
+<p>Buyerポータルに表示される案件は、次の優先順位で判定されます:</p>
+<ol>
+  <li><strong>案件の「Buyer（主取引先）」</strong> — 案件編集 → 案件情報タブ → <code>primary_buyer_id</code>（<strong>推奨</strong>）</li>
+  <li>上記が未設定の場合: <strong>書類ごとのBuyer</strong>（Invoice → SC → SI の順で最初にマッチしたもの）</li>
+</ol>
+<blockquote class="warn">既存案件は自動的にbackfillされ、Invoice/SC/SI 書類から主取引先が設定されます。新規案件は「Buyer（主取引先）」の明示的な設定を推奨します。</blockquote>
+
 <h2>プレビューの使い方</h2>
 <div class="help-step">
   <div class="help-step__num">1</div>

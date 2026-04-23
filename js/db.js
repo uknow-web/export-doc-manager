@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS cases (
   invoice_date       TEXT,
   payment_due_date   TEXT,
   seller_id          INTEGER,
+  primary_buyer_id   INTEGER,
   vehicle_model_id   INTEGER,
   qty                INTEGER DEFAULT 1,
   amount_jpy         INTEGER,
@@ -383,6 +384,8 @@ export async function initDB() {
   if (n === 0) seedDefaultSeller();
   const m = db.exec('SELECT COUNT(*) FROM vehicle_models')[0].values[0][0];
   if (m === 0) seedDefaultVehicleModel();
+  // Backfill primary_buyer_id for legacy cases (runs once; no-op after)
+  await backfillPrimaryBuyers();
   await persist();
   return db;
 }
@@ -400,6 +403,8 @@ export async function loadEncryptedDb(dek) {
   db.exec(SCHEMA);
   migrate();
   currentDek = dek;
+  // Run backfill for any legacy cases that predate primary_buyer_id
+  await backfillPrimaryBuyers();
   return db;
 }
 
@@ -449,6 +454,7 @@ function migrate() {
     ['status_updated_at','TEXT'],
     ['tags','TEXT'],
     ['is_favorite','INTEGER DEFAULT 0'],
+    ['primary_buyer_id','INTEGER'],
   ];
   for (const [c, d] of newCaseCols) addColumnIfMissing('cases', c, d);
 
@@ -640,7 +646,7 @@ export function getVehicleModel(id) {
 
 // ---- Case -----------------------------------------------------------------
 const CASE_FIELDS = [
-  'case_code','invoice_ref_no','invoice_date','payment_due_date','seller_id','vehicle_model_id','qty','amount_jpy',
+  'case_code','invoice_ref_no','invoice_date','payment_due_date','seller_id','primary_buyer_id','vehicle_model_id','qty','amount_jpy',
   'description','maker','model_name','year_month','model_code','chassis_no','engine_no',
   'engine_capacity','displacement_cc','mileage','exterior_color','fuel','auction_grade',
   'weight_kg','measurement_m3','hs_code','specification','remark',
@@ -736,6 +742,34 @@ export async function toggleFavorite(caseId) {
   run('UPDATE cases SET is_favorite=? WHERE id=?', [next, caseId]);
   await persist();
   return next === 1;
+}
+
+/**
+ * One-time backfill of primary_buyer_id from per-document buyer_ids for
+ * cases that were created before the primary buyer field existed. Priority
+ * order: Invoice buyer → Sales Confirmation buyer → Shipping Instruction
+ * buyer. Cases that already have primary_buyer_id set are left alone.
+ */
+export async function backfillPrimaryBuyers() {
+  const cases = query('SELECT id FROM cases WHERE primary_buyer_id IS NULL');
+  let patched = 0;
+  for (const c of cases) {
+    const order = ['invoice', 'sales_confirmation', 'shipping_instruction'];
+    let buyerId = null;
+    for (const t of order) {
+      const d = queryOne(
+        'SELECT buyer_id FROM case_documents WHERE case_id=? AND doc_type=? AND buyer_id IS NOT NULL',
+        [c.id, t]
+      );
+      if (d?.buyer_id) { buyerId = d.buyer_id; break; }
+    }
+    if (buyerId) {
+      run('UPDATE cases SET primary_buyer_id=? WHERE id=?', [buyerId, c.id]);
+      patched++;
+    }
+  }
+  if (patched > 0) await persist();
+  return patched;
 }
 
 // Lightweight stat summary used by the case list footer and the dashboard.

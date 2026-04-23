@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=20">
-<link rel="stylesheet" href="css/documents.css?v=20">
+<link rel="stylesheet" href="css/app.css?v=21">
+<link rel="stylesheet" href="css/documents.css?v=21">
 </head>
 <body>
 
@@ -177,7 +177,7 @@
         <tr>
           <th style="width:60px">写真</th>
           <th>Case Code</th>
-          <th>Invoice Ref No.</th>
+          <th>Buyer</th>
           <th>Vehicle</th>
           <th>Chassis No.</th>
           <th>Amount</th>
@@ -424,6 +424,10 @@
         <label>Payment Due Date <input name="payment_due_date" type="date"></label>
         <label>Seller
           <select name="seller_id" required></select>
+        </label>
+        <label>Buyer（主取引先）
+          <select name="primary_buyer_id" id="case-primary-buyer"></select>
+          <small class="hint" style="margin-top:2px">この案件の主たるBuyer。Buyerマイページでの紐付けと、書類ごとのBuyer未設定時のデフォルトに使われます。</small>
         </label>
         <label>Qty <input name="qty" type="number" value="1" min="1"></label>
       </div>

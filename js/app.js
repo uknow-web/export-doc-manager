@@ -357,7 +357,7 @@ function switchTab(name) {
   if (name === 'receivables') renderReceivables();
   if (name === 'settings')    renderSettings();
   if (name === 'buyer-portal') renderBuyerPortalSelector();
-  if (name === 'editor')      { populateSellerSelect(); populateVehicleModelSelect(); populateNotifyPartySelect(); }
+  if (name === 'editor')      { populateSellerSelect(); populateVehicleModelSelect(); populateNotifyPartySelect(); populatePrimaryBuyerSelect(); }
 }
 
 // ---- Header: DB export/import --------------------------------------------
@@ -453,6 +453,7 @@ function setupParties() {
     renderParties();
     populateSellerSelect();
     populateNotifyPartySelect();
+    populatePrimaryBuyerSelect();
     toast('Partyを保存しました', 'success');
   });
   document.getElementById('btn-party-cancel').addEventListener('click', closePartyEditor);
@@ -649,15 +650,20 @@ function renderCases() {
              ${photos.length > 1 ? `<span class="case-thumb__count">+${photos.length - 1}</span>` : ''}
            </div>`
         : '<div class="case-thumb case-thumb--empty" title="写真なし">📷</div>';
+      const buyer = c.primary_buyer_id ? getParty(c.primary_buyer_id) : null;
+      const buyerCell = buyer
+        ? escapeHtml(buyer.company_name)
+        : '<span style="color:#9ca3af;font-size:11px">未設定</span>';
       return `
       <tr class="${c.is_favorite ? 'row-favorite' : ''}">
         <td class="case-thumb-cell">${thumbHtml}</td>
         <td>
           <button class="fav-star ${c.is_favorite ? 'fav-star--on' : ''}" data-fav-case="${c.id}" title="${c.is_favorite ? 'お気に入り解除' : 'お気に入りに追加'}">${c.is_favorite ? '★' : '☆'}</button>
           ${escapeHtml(c.case_code || '')}
+          ${c.invoice_ref_no ? `<div style="font-size:10px;color:#9ca3af;margin-top:1px">${escapeHtml(c.invoice_ref_no)}</div>` : ''}
           ${tagsHtml ? `<div style="margin-top:2px">${tagsHtml}</div>` : ''}
         </td>
-        <td>${escapeHtml(c.invoice_ref_no || '')}</td>
+        <td style="font-size:12px">${buyerCell}</td>
         <td>${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim())}</td>
         <td>${escapeHtml(c.chassis_no || '')}</td>
         <td class="mask-amount">${c.amount_jpy ? '¥' + Number(c.amount_jpy).toLocaleString() : ''}</td>
@@ -721,6 +727,7 @@ function setupEditor() {
     if (!data.id) delete data.id;
     else data.id = Number(data.id);
     if (data.seller_id) data.seller_id = Number(data.seller_id);
+    if (data.primary_buyer_id) data.primary_buyer_id = Number(data.primary_buyer_id);
     if (data.vehicle_model_id) data.vehicle_model_id = Number(data.vehicle_model_id);
     if (data.notify_party_id) data.notify_party_id = Number(data.notify_party_id);
 
@@ -954,6 +961,16 @@ function populateVehicleModelSelect() {
   if (current) sel.value = current;
 }
 
+function populatePrimaryBuyerSelect() {
+  const sel = document.querySelector('#form-case [name="primary_buyer_id"]');
+  if (!sel) return;
+  const buyers = listParties('buyer');
+  const current = sel.value;
+  sel.innerHTML = `<option value="">（未設定）</option>` +
+    buyers.map(b => `<option value="${b.id}">${escapeHtml(b.company_name)}</option>`).join('');
+  if (current) sel.value = current;
+}
+
 function populateNotifyPartySelect() {
   const sel = document.querySelector('#form-case [name="notify_party_id"]');
   if (!sel) return;
@@ -974,6 +991,7 @@ function openCaseEditor(id) {
   populateSellerSelect();
   populateVehicleModelSelect();
   populateNotifyPartySelect();
+  populatePrimaryBuyerSelect();
   resetEditorTabs();
   updateEditorTabBadges(id);
   const form = document.getElementById('form-case');
@@ -1658,6 +1676,7 @@ function renderBreakdownCharts() {
   const partyName = (id) => parties.find(p => p.id === id)?.company_name || '（未設定）';
 
   const buyerBuckets = aggregateSum(rows, r => {
+    if (r.primary_buyer_id) return partyName(r.primary_buyer_id);
     const d = getCaseDoc(r.id, 'invoice') || getCaseDoc(r.id, 'sales_confirmation');
     return d?.buyer_id ? partyName(d.buyer_id) : '（未設定）';
   }, r => Number(r.amount_jpy || 0));
@@ -2179,10 +2198,12 @@ function renderDetailView(caseId) {
   const c = getCase(caseId);
   if (!c) return;
   const seller = c.seller_id ? getParty(c.seller_id) : null;
-  // Try to use Invoice buyer, fallback to Sales Confirmation buyer
+  // Primary buyer is the authoritative link; fall back to per-doc Invoice/SC
+  // buyer for legacy cases that predate the primary_buyer_id column.
   const invoiceDoc = getCaseDoc(caseId, 'invoice');
   const scDoc = getCaseDoc(caseId, 'sales_confirmation');
-  const buyer = (invoiceDoc?.buyer_id ? getParty(invoiceDoc.buyer_id) : null)
+  const buyer = (c.primary_buyer_id ? getParty(c.primary_buyer_id) : null)
+             || (invoiceDoc?.buyer_id ? getParty(invoiceDoc.buyer_id) : null)
              || (scDoc?.buyer_id ? getParty(scDoc.buyer_id) : null);
   const notify = c.notify_party_id ? getParty(c.notify_party_id) : null;
 
@@ -3432,16 +3453,29 @@ function renderBuyerPortalSelector() {
   if (current) sel.value = current;
 }
 
-// Collect all cases where this buyer appears in any document's buyer_id
+// Collect all cases linked to this Buyer.
+// Priority order:
+//   1. cases.primary_buyer_id exact match (the authoritative link)
+//   2. Fallback: any per-document buyer_id matches (legacy cases / special
+//      arrangements where a doc is addressed to a different Buyer)
 function getCasesForBuyer(buyerId) {
   const allCases = listCases();
-  return allCases.filter(c => {
+  const matched = new Map(); // id → case row, dedup
+  for (const c of allCases) {
+    if (c.primary_buyer_id === buyerId) {
+      matched.set(c.id, c);
+      continue;
+    }
+    // Fallback: per-document link
     for (const t of DOC_TYPES) {
       const d = getCaseDoc(c.id, t.key);
-      if (d?.buyer_id === buyerId) return true;
+      if (d?.buyer_id === buyerId) {
+        matched.set(c.id, c);
+        break;
+      }
     }
-    return false;
-  });
+  }
+  return [...matched.values()];
 }
 
 function renderBuyerPortal(buyerId) {
