@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=26">
-<link rel="stylesheet" href="css/documents.css?v=26">
+<link rel="stylesheet" href="css/app.css?v=27">
+<link rel="stylesheet" href="css/documents.css?v=27">
 </head>
 <body>
 
@@ -850,6 +850,17 @@
         <div class="form-grid">
           <label>署名者名 <input id="setting-signer-name" placeholder="MAKOTO Kubota"></label>
           <label>肩書 <input id="setting-signer-title" placeholder="Managing Director"></label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>ポータル表示用 連絡先</h2>
+        <p class="hint">Buyerポータル / AP Holderポータルのフッターに表示されるメールアドレス。空欄の場合は「リマインダー」タブの差出人(From)を使用、それも無ければ <code>info@kmt.kyoto</code>。</p>
+        <div class="form-grid">
+          <label>Contact Email <input id="setting-contact-email" type="email" placeholder="support@kmt.kyoto"></label>
+          <label>ポータル下部の表示テキスト
+            <input id="setting-portal-footer-text" placeholder="Powered by Export Document Manager">
+          </label>
         </div>
       </div>
 

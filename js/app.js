@@ -3715,8 +3715,11 @@ function renderBuyerPortal(buyerId) {
     })()}
 
     <div class="bp-footer">
-      Contact: ${escapeHtml(getSetting('mail_from', 'info@kmt.kyoto'))}<br>
-      Powered by Export Document Manager
+      Contact: ${(() => {
+        const email = getSetting('contact_email', '') || getSetting('mail_from', '') || 'info@kmt.kyoto';
+        return `<a href="mailto:${escapeHtml(email)}" style="color:inherit">${escapeHtml(email)}</a>`;
+      })()}<br>
+      ${escapeHtml(getSetting('portal_footer_text', '') || 'Powered by Export Document Manager')}
     </div>
   `;
 
@@ -4059,8 +4062,11 @@ function renderApPortal(apHolderId) {
     ` : ''}
 
     <div class="ap-footer">
-      Contact: ${escapeHtml(getSetting('mail_from', 'info@kmt.kyoto'))}<br>
-      Powered by Export Document Manager
+      Contact: ${(() => {
+        const email = getSetting('contact_email', '') || getSetting('mail_from', '') || 'info@kmt.kyoto';
+        return `<a href="mailto:${escapeHtml(email)}" style="color:inherit">${escapeHtml(email)}</a>`;
+      })()}<br>
+      ${escapeHtml(getSetting('portal_footer_text', '') || 'Powered by Export Document Manager')}
     </div>
   `;
 
@@ -4377,6 +4383,8 @@ function setupSettings() {
     await setSetting('signer_title',      document.getElementById('setting-signer-title').value.trim());
     await setSetting('extra_note_invoice', document.getElementById('setting-extra-note-invoice').value);
     await setSetting('extra_note_si',      document.getElementById('setting-extra-note-si').value);
+    await setSetting('contact_email',     document.getElementById('setting-contact-email').value.trim());
+    await setSetting('portal_footer_text', document.getElementById('setting-portal-footer-text').value);
     toast('テンプレート設定を保存しました', 'success');
   });
 
@@ -4424,6 +4432,8 @@ function renderSettings() {
   document.getElementById('setting-signer-title').value = getSetting('signer_title', 'Managing Director') || '';
   document.getElementById('setting-extra-note-invoice').value = getSetting('extra_note_invoice', '') || '';
   document.getElementById('setting-extra-note-si').value      = getSetting('extra_note_si', '') || '';
+  document.getElementById('setting-contact-email').value      = getSetting('contact_email', '') || '';
+  document.getElementById('setting-portal-footer-text').value = getSetting('portal_footer_text', '') || '';
 
   // Reminders
   document.getElementById('setting-reminders-enabled').value = String(getSetting('reminders_enabled', true));
