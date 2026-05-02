@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=24">
-<link rel="stylesheet" href="css/documents.css?v=24">
+<link rel="stylesheet" href="css/app.css?v=25">
+<link rel="stylesheet" href="css/documents.css?v=25">
 </head>
 <body>
 
@@ -378,7 +378,7 @@
       <form id="form-model" class="form-grid">
         <input type="hidden" name="id">
         <label>カテゴリ
-          <select name="category" required>
+          <select name="category" id="form-model-category" required>
             <option value="car">🚗 自動車 (Car)</option>
             <option value="bike">🏍 オートバイ (Motorcycle)</option>
           </select>
@@ -386,7 +386,13 @@
         <label>Maker <input name="maker" placeholder="TOYOTA" required></label>
         <label>Model Name <input name="model_name" placeholder="ALPHARD Z" required></label>
         <label>Model Code <input name="model_code" placeholder="3BA-AGH40W"></label>
-        <label>Fuel <input name="fuel" placeholder="PETROL"></label>
+        <label>Fuel
+          <select name="fuel">
+            <option value="">—</option>
+            <option value="PETROL">PETROL（ガソリン）</option>
+            <option value="DIESEL">DIESEL（ディーゼル）</option>
+          </select>
+        </label>
         <label>Engine Capacity <input name="engine_capacity" placeholder="2500CC"></label>
         <label>Displacement (CC) <input name="displacement_cc" placeholder="2500"></label>
         <label>Weight (kg) <input name="weight_kg" placeholder="2465"></label>
@@ -518,7 +524,13 @@
         <label>Displacement (CC) <input name="displacement_cc" placeholder="2500"></label>
         <label>Mileage <input name="mileage" placeholder="12,251KM"></label>
         <label>Exterior Color <input name="exterior_color" placeholder="GOLD"></label>
-        <label>Fuel <input name="fuel" placeholder="PETROL"></label>
+        <label>Fuel
+          <select name="fuel">
+            <option value="">—</option>
+            <option value="PETROL">PETROL（ガソリン）</option>
+            <option value="DIESEL">DIESEL（ディーゼル）</option>
+          </select>
+        </label>
         <label>Auction Grade <input name="auction_grade" placeholder="4.5"></label>
         <label>Weight (kg) <input name="weight_kg" placeholder="2465"></label>
         <label>Measurement (M3) <input name="measurement_m3" placeholder="17.88"></label>

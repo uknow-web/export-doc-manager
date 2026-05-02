@@ -46,7 +46,7 @@ import {
 } from './auth.js';
 import { getDek } from './db.js';
 import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.js';
-import { VEHICLE_CATEGORIES, categoryLabel, categoryEnLabel, categoryIcon, categoryBadge, normalizeCategory } from './categories.js';
+import { VEHICLE_CATEGORIES, categoryLabel, categoryEnLabel, categoryIcon, categoryBadge, normalizeCategory, defaultHsCode } from './categories.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
   deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
@@ -536,6 +536,7 @@ function closePartyEditor() {
 // ---- Vehicle Models -------------------------------------------------------
 function setupVehicleModels() {
   document.getElementById('btn-new-model').addEventListener('click', () => openModelEditor(null));
+  setupModelCategoryAutofill();
   const form = document.getElementById('form-model');
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -601,9 +602,32 @@ function openModelEditor(id) {
   } else {
     fillForm(form, null);
     form.elements.id.value = '';
+    // Default category to 'car' on new entry; auto-fill HS code default
+    if (form.elements.category) form.elements.category.value = 'car';
+    if (form.elements.hs_code && !form.elements.hs_code.value) {
+      form.elements.hs_code.value = defaultHsCode('car');
+    }
     document.getElementById('model-editor-title').textContent = '新規モデル';
     document.getElementById('btn-model-delete').classList.add('hidden');
   }
+}
+
+// Auto-update HS Code default when the model category dropdown changes
+// (only if the field is currently empty or holds a previous default).
+function setupModelCategoryAutofill() {
+  const catSel = document.getElementById('form-model-category');
+  if (!catSel || catSel.dataset.autofillWired) return;
+  catSel.dataset.autofillWired = 'true';
+  catSel.addEventListener('change', () => {
+    const form = document.getElementById('form-model');
+    const hs = form.elements.hs_code;
+    if (!hs) return;
+    // Only overwrite when empty or holding any of the known defaults
+    const knownDefaults = VEHICLE_CATEGORIES.map(c => c.hsDefault).filter(Boolean);
+    if (!hs.value || knownDefaults.includes(hs.value)) {
+      hs.value = defaultHsCode(catSel.value);
+    }
+  });
 }
 
 function closeModelEditor() {

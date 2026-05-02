@@ -533,7 +533,7 @@ function seedDefaultVehicleModel() {
     'PETROL',
     '2465',
     '17.88',
-    '8703 23',
+    '8703.23',
     [
       'Right and left independent moon roof.',
       'Genuine 13.2 inch OEL rear seat display.',

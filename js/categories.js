@@ -12,8 +12,10 @@ export const VEHICLE_CATEGORIES = [
     en:    'Cars',
     icon:  '🚗',
     badge: 'blue',
-    // Common HS code prefix for cars (8703.xx)
-    hsPrefix: '8703',
+    // Common HS code for passenger cars (1500-3000cc gasoline);
+    // user can override per model.
+    hsPrefix:  '8703',
+    hsDefault: '8703.23',
   },
   {
     key: 'bike',
@@ -21,10 +23,15 @@ export const VEHICLE_CATEGORIES = [
     en:    'Motorcycles',
     icon:  '🏍',
     badge: 'purple',
-    // Common HS code prefix for motorcycles (8711.xx)
-    hsPrefix: '8711',
+    hsPrefix:  '8711',
+    hsDefault: '8711',
   },
 ];
+
+/** Default HS code for a category (used when creating a new model). */
+export function defaultHsCode(catKey) {
+  return VEHICLE_CATEGORIES.find(c => c.key === catKey)?.hsDefault || '';
+}
 
 export function categoryLabel(key) {
   return VEHICLE_CATEGORIES.find(c => c.key === key)?.label || key || '—';
