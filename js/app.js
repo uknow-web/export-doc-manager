@@ -496,10 +496,11 @@ function renderParties() {
   const role = document.getElementById('parties-role-filter').value;
   const rows = listParties(role);
   const tbody = document.querySelector('#table-parties tbody');
-  const roleLabel = { seller: 'Seller', buyer: 'Buyer', notify: 'Notify' };
+  const roleLabel = { seller: 'Seller', buyer: 'Buyer', notify: 'Notify', ap_holder: 'AP Holder' };
+  const roleBadge = { seller: 'indigo', buyer: 'blue', notify: 'teal', ap_holder: 'amber' };
   tbody.innerHTML = rows.map(p => `
     <tr>
-      <td>${roleLabel[p.role] || p.role}</td>
+      <td><span class="badge badge--${roleBadge[p.role] || 'gray'}">${roleLabel[p.role] || p.role}</span></td>
       <td>${escapeHtml(p.company_name)}</td>
       <td>${escapeHtml(p.address || '')}</td>
       <td>${escapeHtml(p.tel || '')}</td>
