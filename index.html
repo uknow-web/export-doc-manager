@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=23">
-<link rel="stylesheet" href="css/documents.css?v=23">
+<link rel="stylesheet" href="css/app.css?v=24">
+<link rel="stylesheet" href="css/documents.css?v=24">
 </head>
 <body>
 
@@ -465,6 +465,10 @@
         <label>Buyer（主取引先）
           <select name="primary_buyer_id" id="case-primary-buyer"></select>
           <small class="hint" style="margin-top:2px">この案件の主たるBuyer。Buyerマイページでの紐付けと、書類ごとのBuyer未設定時のデフォルトに使われます。</small>
+        </label>
+        <label>AP Holder（A.P.保有者）
+          <select name="ap_holder_id" id="case-ap-holder"></select>
+          <small class="hint" style="margin-top:2px">輸入承認証 (A.P.) 保有者。Invoiceの右下署名欄に名称が出力されます。輸送中に変わった場合はここで更新すると履歴が記録されます。</small>
         </label>
         <label>Qty <input name="qty" type="number" value="1" min="1"></label>
       </div>

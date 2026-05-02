@@ -13,6 +13,7 @@ import {
   savePayment, deletePayment, listPayments, paymentsTotal,
   saveCost, deleteCost, listCosts, costsTotal,
   savePhoto, deletePhoto, listPhotos, listPhotosSummary, updatePhotoCaption,
+  appendApHolderHistory, listApHolderHistory, resolveApHolderId,
   logDocIssued, listDocIssueLog,
   getSetting, setSetting, nextSequenceFromPattern,
   query, run,
@@ -381,7 +382,7 @@ function switchTab(name) {
   if (name === 'receivables') renderReceivables();
   if (name === 'settings')    renderSettings();
   if (name === 'buyer-portal') renderBuyerPortalSelector();
-  if (name === 'editor')      { populateSellerSelect(); populateVehicleModelSelect(); populateNotifyPartySelect(); populatePrimaryBuyerSelect(); }
+  if (name === 'editor')      { populateSellerSelect(); populateVehicleModelSelect(); populateNotifyPartySelect(); populatePrimaryBuyerSelect(); populateApHolderSelect(); }
 }
 
 // ---- Header: DB export/import --------------------------------------------
@@ -478,6 +479,7 @@ function setupParties() {
     populateSellerSelect();
     populateNotifyPartySelect();
     populatePrimaryBuyerSelect();
+    populateApHolderSelect();
     toast('Partyを保存しました', 'success');
   });
   document.getElementById('btn-party-cancel').addEventListener('click', closePartyEditor);
@@ -762,6 +764,7 @@ function setupEditor() {
     else data.id = Number(data.id);
     if (data.seller_id) data.seller_id = Number(data.seller_id);
     if (data.primary_buyer_id) data.primary_buyer_id = Number(data.primary_buyer_id);
+    if (data.ap_holder_id) data.ap_holder_id = Number(data.ap_holder_id);
     if (data.vehicle_model_id) data.vehicle_model_id = Number(data.vehicle_model_id);
     if (data.notify_party_id) data.notify_party_id = Number(data.notify_party_id);
 
@@ -789,6 +792,20 @@ function setupEditor() {
       summary: `${prev ? '案件更新' : '案件作成'}: ${data.case_code || '#' + id}`,
     });
 
+    // Detect AP Holder change → record history
+    const oldApHolder = prev?.ap_holder_id || null;
+    const newApHolder = data.ap_holder_id || null;
+    if (prev && oldApHolder !== newApHolder) {
+      await appendApHolderHistory(id, oldApHolder, newApHolder, u.username, '案件編集により変更');
+      const oldName = oldApHolder ? (getParty(oldApHolder)?.company_name || '#' + oldApHolder) : '（未設定）';
+      const newName = newApHolder ? (getParty(newApHolder)?.company_name || '#' + newApHolder) : '（未設定）';
+      await appendAuditLog({
+        actor_user_id: u.id, actor_username: u.username,
+        action: 'ap_holder_change', target_type: 'case', target_id: id,
+        summary: `AP Holder変更: ${oldName} → ${newName}`,
+      });
+    }
+
     // Save registration events
     await replaceCaseEvents(id, collectRegEvents());
 
@@ -796,14 +813,16 @@ function setupEditor() {
     for (const t of DOC_TYPES) {
       const buyerEl = form.querySelector(`[data-doc-field="buyer_id"][data-doc="${t.key}"]`);
       if (!buyerEl) continue;
+      const apEl    = form.querySelector(`[data-doc-field="ap_holder_id"][data-doc="${t.key}"]`);
       const termsEl = form.querySelector(`[data-doc-field="terms_condition"][data-doc="${t.key}"]`);
       const dateEl  = form.querySelector(`[data-doc-field="doc_date"][data-doc="${t.key}"]`);
       const refEl   = form.querySelector(`[data-doc-field="doc_ref_no"][data-doc="${t.key}"]`);
-      if (!buyerEl.value && !termsEl?.value && !dateEl?.value && !refEl?.value) continue;
+      if (!buyerEl.value && !apEl?.value && !termsEl?.value && !dateEl?.value && !refEl?.value) continue;
       await saveCaseDoc({
         case_id: id,
         doc_type: t.key,
         buyer_id: buyerEl.value ? Number(buyerEl.value) : null,
+        ap_holder_id: apEl?.value ? Number(apEl.value) : null,
         terms_condition: termsEl?.value || null,
         doc_date: dateEl?.value || null,
         doc_ref_no: refEl?.value || null,
@@ -958,14 +977,20 @@ function collectRegEvents() {
 function renderDocSettings() {
   const host = document.getElementById('doc-settings');
   const buyers = listParties('buyer');
-  const buyerOpts = `<option value="">（未設定）</option>` +
+  const apHolders = listParties('ap_holder');
+  const buyerOpts = `<option value="">（案件のBuyerを使用）</option>` +
     buyers.map(b => `<option value="${b.id}">${escapeHtml(b.company_name)}</option>`).join('');
+  const apHolderOpts = `<option value="">（案件のAP Holderを使用）</option>` +
+    apHolders.map(p => `<option value="${p.id}">${escapeHtml(p.company_name)}</option>`).join('');
 
   host.innerHTML = DOC_TYPES.map(t => `
-    <div class="doc-setting-row">
+    <div class="doc-setting-row" style="grid-template-columns: 180px 1fr 1fr 1fr 1fr;">
       <div class="doc-type-label">${escapeHtml(t.label)}${t.implemented ? '' : ' <small style="color:#9ca3af">(未実装)</small>'}</div>
       <label>Buyer
         <select data-doc-field="buyer_id" data-doc="${t.key}">${buyerOpts}</select>
+      </label>
+      <label>AP Holder
+        <select data-doc-field="ap_holder_id" data-doc="${t.key}">${apHolderOpts}</select>
       </label>
       <label>Terms
         <input data-doc-field="terms_condition" data-doc="${t.key}" value="${escapeHtml(t.termsDefault)}">
@@ -1009,6 +1034,21 @@ function populatePrimaryBuyerSelect() {
   if (current) sel.value = current;
 }
 
+function populateApHolderSelect() {
+  const sel = document.querySelector('#form-case [name="ap_holder_id"]');
+  if (!sel) return;
+  const apHolders = listParties('ap_holder');
+  // Allow buyer parties as fallback (small operations often double up roles)
+  const buyers = listParties('buyer');
+  const current = sel.value;
+  sel.innerHTML = `<option value="">（未設定）</option>` +
+    apHolders.map(p => `<option value="${p.id}">${escapeHtml(p.company_name)}</option>`).join('') +
+    (buyers.length ? `<optgroup label="Buyerから選択">` +
+      buyers.map(p => `<option value="${p.id}">${escapeHtml(p.company_name)}</option>`).join('') +
+      `</optgroup>` : '');
+  if (current) sel.value = current;
+}
+
 function populateNotifyPartySelect() {
   const sel = document.querySelector('#form-case [name="notify_party_id"]');
   if (!sel) return;
@@ -1030,6 +1070,7 @@ function openCaseEditor(id) {
   populateVehicleModelSelect();
   populateNotifyPartySelect();
   populatePrimaryBuyerSelect();
+  populateApHolderSelect();
   resetEditorTabs();
   updateEditorTabBadges(id);
   const form = document.getElementById('form-case');
@@ -1052,6 +1093,7 @@ function openCaseEditor(id) {
         if (el) el.value = v ?? '';
       };
       set('buyer_id', doc.buyer_id);
+      set('ap_holder_id', doc.ap_holder_id);
       set('terms_condition', doc.terms_condition);
       set('doc_date', doc.doc_date);
       set('doc_ref_no', doc.doc_ref_no);
@@ -1166,14 +1208,17 @@ function renderPreview() {
   const doc = getCaseDoc(caseRow.id, docType);
   const buyer = doc?.buyer_id ? getParty(doc.buyer_id) : null;
   const notifyParty = caseRow.notify_party_id ? getParty(caseRow.notify_party_id) : null;
+  // Resolve AP Holder: per-doc override → case-level → null
+  const apHolderId = doc?.ap_holder_id || caseRow.ap_holder_id || null;
+  const apHolder = apHolderId ? getParty(apHolderId) : null;
 
   let node;
   switch (docType) {
     case 'sales_confirmation':
-      node = renderSalesConfirmation({ caseRow, seller, buyer, doc });
+      node = renderSalesConfirmation({ caseRow, seller, buyer, doc, apHolder });
       break;
     case 'invoice':
-      node = renderInvoice({ caseRow, seller, buyer, doc });
+      node = renderInvoice({ caseRow, seller, buyer, doc, apHolder });
       break;
     case 'shipping_instruction':
       node = renderShippingInstruction({ caseRow, seller, buyer, doc, notifyParty });
@@ -1884,9 +1929,11 @@ function buildDocNode(caseId, docType) {
   const doc = getCaseDoc(caseRow.id, docType);
   const buyer = doc?.buyer_id ? getParty(doc.buyer_id) : null;
   const notifyParty = caseRow.notify_party_id ? getParty(caseRow.notify_party_id) : null;
+  const apHolderId = doc?.ap_holder_id || caseRow.ap_holder_id || null;
+  const apHolder = apHolderId ? getParty(apHolderId) : null;
   switch (docType) {
-    case 'sales_confirmation':   return renderSalesConfirmation({ caseRow, seller, buyer, doc });
-    case 'invoice':              return renderInvoice({ caseRow, seller, buyer, doc });
+    case 'sales_confirmation':   return renderSalesConfirmation({ caseRow, seller, buyer, doc, apHolder });
+    case 'invoice':              return renderInvoice({ caseRow, seller, buyer, doc, apHolder });
     case 'shipping_instruction': return renderShippingInstruction({ caseRow, seller, buyer, doc, notifyParty });
     case 'export_certificate':   return renderExportCertificate({ caseRow, seller, doc });
     case 'preserved_record':     return renderPreservedRecord({ caseRow, seller, doc, events: listCaseEvents(caseRow.id) });
@@ -2347,9 +2394,43 @@ function renderDetailView(caseId) {
         <div style="font-size:12px">
           <div style="margin-bottom:8px"><strong>Seller</strong><br>${escapeHtml(seller?.company_name || '—')}</div>
           <div style="margin-bottom:8px"><strong>Buyer</strong><br>${escapeHtml(buyer?.company_name || '—')}${buyer?.address ? `<br><span style="color:#6b7280">${escapeHtml(buyer.address).replace(/\n/g, '<br>')}</span>` : ''}</div>
+          ${(() => {
+            const ap = c.ap_holder_id ? getParty(c.ap_holder_id) : null;
+            return ap ? `<div style="margin-bottom:8px"><strong>AP Holder</strong><br>${escapeHtml(ap.company_name)}</div>` : '';
+          })()}
           ${notify ? `<div><strong>Notify Party</strong><br>${escapeHtml(notify.company_name)}</div>` : ''}
         </div>
       </div>
+
+      <!-- AP Holder change history -->
+      ${(() => {
+        const history = listApHolderHistory(c.id);
+        if (!history.length) return '';
+        return `
+        <div class="detail-card">
+          <div class="detail-card__head">
+            <h4>📜 AP Holder 変更履歴</h4>
+            <span class="detail-card__head__action">${history.length}件</span>
+          </div>
+          <ul class="reg-timeline">
+            ${history.map(h => {
+              const fromName = h.old_ap_holder_id ? (getParty(h.old_ap_holder_id)?.company_name || '#' + h.old_ap_holder_id) : '（未設定）';
+              const toName   = h.new_ap_holder_id ? (getParty(h.new_ap_holder_id)?.company_name || '#' + h.new_ap_holder_id) : '（未設定）';
+              return `
+                <li>
+                  <div class="reg-timeline__date">${escapeHtml(new Date(h.changed_at).toLocaleString('ja-JP'))}</div>
+                  <div style="font-size:12px;color:#1f2937">
+                    <span style="color:#9ca3af;text-decoration:line-through">${escapeHtml(fromName)}</span>
+                    <span style="margin:0 4px;color:#6b7280">→</span>
+                    <strong>${escapeHtml(toName)}</strong>
+                  </div>
+                  ${h.changed_by ? `<div class="reg-timeline__type">変更者: ${escapeHtml(h.changed_by)}</div>` : ''}
+                  ${h.note ? `<div style="font-size:11px;color:#6b7280">${escapeHtml(h.note)}</div>` : ''}
+                </li>`;
+            }).join('')}
+          </ul>
+        </div>`;
+      })()}
 
       <!-- Payment progress -->
       <div class="detail-card">

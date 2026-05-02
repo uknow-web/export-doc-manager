@@ -151,6 +151,45 @@ export const HELP_SECTIONS = [
     `,
   },
   {
+    id: 'ap-holder',
+    title: 'AP Holder（A.P.保有者）',
+    content: `
+<h1>AP Holder（A.P.保有者）</h1>
+<p>マレーシア向け輸出などで重要な、Approved Permit（輸入承認証）の保有者を管理する機能です。</p>
+
+<h2>業務上のポイント</h2>
+<ul>
+  <li>AP Holder は <strong>Buyer と異なるケース</strong> が多い（Buyerが買主・AP Holderは輸入手続を代行する別会社）</li>
+  <li><strong>輸送中に AP Holder が変わる</strong> ことがある（権利譲渡など）</li>
+  <li>Invoice の右下「AP Holder signature and chop」欄に名前が出る</li>
+</ul>
+
+<h2>3層の指定</h2>
+<table>
+  <tr><th>レベル</th><th>場所</th><th>用途</th></tr>
+  <tr><td>1. Party</td><td>Seller / Buyer 管理</td><td>AP Holder 候補の会社を登録（Role: AP Holder）</td></tr>
+  <tr><td>2. 案件レベル</td><td>案件編集 → 案件情報タブ</td><td>この案件のデフォルトAP Holder</td></tr>
+  <tr><td>3. 書類レベル</td><td>案件編集 → 書類ごとのBuyer/条件タブ</td><td>特定書類のみ別のAP Holderを使う場合</td></tr>
+</table>
+<p><strong>解決優先順位:</strong> 書類レベル → 案件レベル → 未設定</p>
+
+<h2>変更履歴の自動記録</h2>
+<p>案件の AP Holder を変更して保存すると、自動的に <code>ap_holder_history</code> テーブルに記録されます:</p>
+<ul>
+  <li>変更日時（自動）</li>
+  <li>変更前後の AP Holder</li>
+  <li>変更を行ったユーザー（自動）</li>
+  <li>監査ログにも同時記録</li>
+</ul>
+<p>履歴は<strong>案件詳細ビュー</strong>で時系列タイムラインとして確認できます（「📜 AP Holder 変更履歴」カード）。</p>
+
+<h2>Invoice への反映</h2>
+<p>Invoice の右下「AP Holder signature and chop」欄に、解決された AP Holder の会社名が自動印字されます。書類レベルで特定の AP Holder を指定すれば、その書類のみ別の名前で発行できます。</p>
+
+<blockquote>💡 <strong>運用Tip</strong>: 同じ会社が Buyer と AP Holder を兼ねる場合は、Party管理で同じ会社を「Buyer」と「AP Holder」両方のロールで登録するか、AP Holderのドロップダウンで「Buyerから選択」グループから選んでください。</blockquote>
+    `,
+  },
+  {
     id: 'parties',
     title: 'Seller / Buyer 管理',
     content: `

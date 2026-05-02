@@ -221,6 +221,9 @@ CREATE TABLE IF NOT EXISTS cases (
   is_favorite               INTEGER DEFAULT 0,
   vehicle_category          TEXT DEFAULT 'car',
 
+  /* --- AP Holder (case-level default; per-document override below) --- */
+  ap_holder_id              INTEGER,
+
   created_at         TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (seller_id)        REFERENCES parties(id),
   FOREIGN KEY (vehicle_model_id) REFERENCES vehicle_models(id),
@@ -334,6 +337,7 @@ CREATE TABLE IF NOT EXISTS case_documents (
   case_id           INTEGER NOT NULL,
   doc_type          TEXT NOT NULL,
   buyer_id          INTEGER,
+  ap_holder_id      INTEGER,
   doc_date          TEXT,
   doc_ref_no        TEXT,
   payment_due_date  TEXT,
@@ -341,9 +345,22 @@ CREATE TABLE IF NOT EXISTS case_documents (
   atten_text        TEXT,
   custom_fields     TEXT,
   UNIQUE (case_id, doc_type),
-  FOREIGN KEY (case_id)  REFERENCES cases(id) ON DELETE CASCADE,
-  FOREIGN KEY (buyer_id) REFERENCES parties(id)
+  FOREIGN KEY (case_id)      REFERENCES cases(id) ON DELETE CASCADE,
+  FOREIGN KEY (buyer_id)     REFERENCES parties(id),
+  FOREIGN KEY (ap_holder_id) REFERENCES parties(id)
 );
+
+CREATE TABLE IF NOT EXISTS ap_holder_history (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id           INTEGER NOT NULL,
+  old_ap_holder_id  INTEGER,
+  new_ap_holder_id  INTEGER,
+  changed_at        TEXT DEFAULT CURRENT_TIMESTAMP,
+  changed_by        TEXT,
+  note              TEXT,
+  FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_ap_history_case ON ap_holder_history(case_id, changed_at DESC);
 `;
 
 // ---- Module-level state ---------------------------------------------------
@@ -458,8 +475,12 @@ function migrate() {
     ['is_favorite','INTEGER DEFAULT 0'],
     ['primary_buyer_id','INTEGER'],
     ['vehicle_category',"TEXT DEFAULT 'car'"],
+    ['ap_holder_id','INTEGER'],
   ];
   for (const [c, d] of newCaseCols) addColumnIfMissing('cases', c, d);
+
+  // Per-document AP Holder override
+  addColumnIfMissing('case_documents', 'ap_holder_id', 'INTEGER');
 
   // Newer columns added to users table for 2FA + brute force protection
   const newUserCols = [
@@ -671,7 +692,7 @@ const CASE_FIELDS = [
   'spec_no','classification_no','owner_code',
   'fuel_classification_spec','engine_model','maker_code','issuer_title',
   'progress_status','payment_status','status_note','status_updated_at',
-  'tags','is_favorite','vehicle_category',
+  'tags','is_favorite','vehicle_category','ap_holder_id',
 ];
 
 export async function saveCase(data) {
@@ -808,9 +829,43 @@ export function getCase(id) {
   return queryOne('SELECT * FROM cases WHERE id=?', [id]);
 }
 
+// ---- AP Holder history (audit trail of who held the AP) -----------------
+export async function appendApHolderHistory(case_id, oldId, newId, changedBy = '', note = '') {
+  if (oldId === newId) return; // no-op
+  run(
+    `INSERT INTO ap_holder_history (case_id, old_ap_holder_id, new_ap_holder_id, changed_by, note)
+     VALUES (?, ?, ?, ?, ?)`,
+    [case_id, oldId ?? null, newId ?? null, changedBy || null, note || null]
+  );
+  await persist();
+}
+
+export function listApHolderHistory(case_id) {
+  return query(
+    `SELECT * FROM ap_holder_history WHERE case_id=? ORDER BY changed_at DESC, id DESC`,
+    [case_id]
+  );
+}
+
+/**
+ * Resolve the effective AP Holder ID for a given case+document combination.
+ * Priority: per-doc override → case-level → null.
+ */
+export function resolveApHolderId(caseId, docType = null) {
+  if (docType) {
+    const d = queryOne(
+      'SELECT ap_holder_id FROM case_documents WHERE case_id=? AND doc_type=?',
+      [caseId, docType]
+    );
+    if (d?.ap_holder_id) return d.ap_holder_id;
+  }
+  const c = queryOne('SELECT ap_holder_id FROM cases WHERE id=?', [caseId]);
+  return c?.ap_holder_id || null;
+}
+
 // ---- Case documents -------------------------------------------------------
 const DOC_FIELDS = [
-  'case_id','doc_type','buyer_id','doc_date','doc_ref_no',
+  'case_id','doc_type','buyer_id','ap_holder_id','doc_date','doc_ref_no',
   'payment_due_date','terms_condition','atten_text','custom_fields',
 ];
 

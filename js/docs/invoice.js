@@ -7,7 +7,7 @@
 import { formatMoney, formatDateLong, escapeHtml, bulletize } from '../util.js';
 import { getLogo, getSignerName, getSignerTitle, getExtraNote } from './template.js';
 
-export function renderInvoice({ caseRow, seller, buyer, doc }) {
+export function renderInvoice({ caseRow, seller, buyer, doc, apHolder }) {
   const h = escapeHtml;
   const root = document.createElement('div');
   root.className = 'doc-sheet doc-sheet--invoice';
@@ -116,7 +116,7 @@ export function renderInvoice({ caseRow, seller, buyer, doc }) {
         <div class="doc-sig__title">(${h(getSignerTitle())})</div>
       </div>
       <div class="doc-sig__line">
-        <div class="doc-sig__name">&nbsp;</div>
+        <div class="doc-sig__name">${h(apHolder?.company_name || '')}</div>
         <div class="doc-sig__title">AP Holder signature and chop</div>
       </div>
     </div>
