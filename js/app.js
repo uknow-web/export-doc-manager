@@ -118,6 +118,7 @@ const DOC_TYPES = [
   startReminderScheduler();
   setupAuthRouting();
   setupBuyerPortal();
+  setupApPortal();
   setupCategoryTabs();
   renderCases();
   renderParties();
@@ -382,6 +383,7 @@ function switchTab(name) {
   if (name === 'receivables') renderReceivables();
   if (name === 'settings')    renderSettings();
   if (name === 'buyer-portal') renderBuyerPortalSelector();
+  if (name === 'ap-portal')    renderApPortalSelector();
   if (name === 'editor')      { populateSellerSelect(); populateVehicleModelSelect(); populateNotifyPartySelect(); populatePrimaryBuyerSelect(); populateApHolderSelect(); }
 }
 
@@ -3904,6 +3906,349 @@ function openBuyerLightbox(src, caption) {
   lb.innerHTML = `<img src="${src}" alt="${escapeHtml(caption)}">`;
   lb.addEventListener('click', () => lb.remove());
   document.body.appendChild(lb);
+}
+
+// ============================================================================
+// AP Holder Portal (preview mockup — admin view of what AP Holders will see)
+// ============================================================================
+
+function setupApPortal() {
+  const sel = document.getElementById('ap-portal-select');
+  if (!sel) return;
+  sel.addEventListener('change', () => {
+    const apId = Number(sel.value) || null;
+    if (apId) renderApPortal(apId);
+    else document.getElementById('ap-portal-content').innerHTML = '';
+  });
+}
+
+function renderApPortalSelector() {
+  if (!canManageUsers(getCurrentUser())) return;
+  const sel = document.getElementById('ap-portal-select');
+  // Show ap_holder-role parties primarily; also include buyer-role since
+  // small operations may use a single party for both roles.
+  const apHolders = listParties('ap_holder');
+  const buyers = listParties('buyer');
+  const current = sel.value;
+  let html = '<option value="">AP Holder を選択してください</option>';
+  if (apHolders.length) {
+    html += '<optgroup label="AP Holder">' +
+      apHolders.map(p => `<option value="${p.id}">${escapeHtml(p.company_name)}</option>`).join('') +
+      '</optgroup>';
+  }
+  if (buyers.length) {
+    html += '<optgroup label="Buyer（兼任の場合）">' +
+      buyers.map(p => `<option value="${p.id}">${escapeHtml(p.company_name)}</option>`).join('') +
+      '</optgroup>';
+  }
+  sel.innerHTML = html;
+  if (current) sel.value = current;
+}
+
+// Find every case where this party is currently the AP Holder, or has ever
+// been involved in the AP Holder history.
+function getCasesForApHolder(apHolderId) {
+  const allCases = listCases();
+  const matched = new Map(); // case_id → { case, current, historical }
+  for (const c of allCases) {
+    let isCurrent = false;
+    let isHistorical = false;
+
+    // Case-level current AP holder
+    if (c.ap_holder_id === apHolderId) isCurrent = true;
+    // Per-document AP holder override
+    if (!isCurrent) {
+      for (const t of DOC_TYPES) {
+        const d = getCaseDoc(c.id, t.key);
+        if (d?.ap_holder_id === apHolderId) { isCurrent = true; break; }
+      }
+    }
+    // History: was once the AP Holder?
+    const history = listApHolderHistory(c.id);
+    if (history.some(h => h.old_ap_holder_id === apHolderId || h.new_ap_holder_id === apHolderId)) {
+      if (!isCurrent) isHistorical = true;
+    }
+
+    if (isCurrent || isHistorical) {
+      matched.set(c.id, { case: c, current: isCurrent, historical: isHistorical });
+    }
+  }
+  // Current cases first, historical cases below
+  return [...matched.values()].sort((a, b) => {
+    if (a.current && !b.current) return -1;
+    if (!a.current && b.current) return 1;
+    return b.case.id - a.case.id;
+  });
+}
+
+function renderApPortal(apHolderId) {
+  const host = document.getElementById('ap-portal-content');
+  const apParty = getParty(apHolderId);
+  if (!apParty) { host.innerHTML = '<div class="ap-empty">AP Holder not found.</div>'; return; }
+
+  const matchedCases = getCasesForApHolder(apHolderId);
+  const currentCases = matchedCases.filter(m => m.current);
+  const historicalCases = matchedCases.filter(m => !m.current && m.historical);
+
+  // Summary stats focused on import-side concerns
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const awaitingShipment = currentCases.filter(({ case: c }) =>
+    c.etd && new Date(c.etd) >= today && !['shipped', 'arrived', 'completed', 'cancelled'].includes(c.progress_status)
+  ).length;
+  const inTransit = currentCases.filter(({ case: c }) =>
+    ['shipped'].includes(c.progress_status)
+  ).length;
+  const arrived = currentCases.filter(({ case: c }) =>
+    ['arrived', 'completed'].includes(c.progress_status)
+  ).length;
+
+  host.innerHTML = `
+    <div class="ap-header">
+      <div>
+        <h1 class="ap-header__title">AP Holder Dashboard — ${escapeHtml(apParty.company_name)}</h1>
+        <div class="ap-header__sub">
+          ${currentCases.length} active permit${currentCases.length === 1 ? '' : 's'} held
+          ${historicalCases.length ? ` · ${historicalCases.length} historical case${historicalCases.length === 1 ? '' : 's'}` : ''}
+        </div>
+      </div>
+      <div class="ap-header__logo">📜</div>
+    </div>
+
+    <div class="ap-summary">
+      <div class="ap-summary__card">
+        <div class="ap-summary__label">Active Permits</div>
+        <div class="ap-summary__value">${currentCases.length}</div>
+        <div class="ap-summary__sub">currently held</div>
+      </div>
+      <div class="ap-summary__card">
+        <div class="ap-summary__label">Awaiting Shipment</div>
+        <div class="ap-summary__value">${awaitingShipment}</div>
+        <div class="ap-summary__sub">ETD upcoming</div>
+      </div>
+      <div class="ap-summary__card">
+        <div class="ap-summary__label">In Transit</div>
+        <div class="ap-summary__value">${inTransit}</div>
+        <div class="ap-summary__sub">shipped, awaiting arrival</div>
+      </div>
+      <div class="ap-summary__card">
+        <div class="ap-summary__label">Arrived / Cleared</div>
+        <div class="ap-summary__value">${arrived}</div>
+        <div class="ap-summary__sub">at destination port</div>
+      </div>
+    </div>
+
+    ${currentCases.length === 0 && historicalCases.length === 0 ? `
+      <div class="ap-empty">
+        <div class="ap-empty__icon">📋</div>
+        <div>No vehicles currently under your permit.</div>
+      </div>
+    ` : ''}
+
+    ${currentCases.length > 0 ? `
+      <h2 class="ap-section-title">📋 Vehicles Under Your AP</h2>
+      <div class="ap-car-list">
+        ${currentCases.map(m => renderApCarCard(m, today, true)).join('')}
+      </div>
+    ` : ''}
+
+    ${historicalCases.length > 0 ? `
+      <h2 class="ap-section-title" style="margin-top:32px">📜 Historical Cases (Previously Held)</h2>
+      <div class="ap-car-list">
+        ${historicalCases.map(m => renderApCarCard(m, today, false)).join('')}
+      </div>
+    ` : ''}
+
+    <div class="ap-footer">
+      Contact: ${escapeHtml(getSetting('mail_from', 'info@kmt.kyoto'))}<br>
+      Powered by Export Document Manager
+    </div>
+  `;
+
+  // Wire up photo lightboxes
+  host.querySelectorAll('[data-ap-photo]').forEach(el => {
+    el.addEventListener('click', () => {
+      const photoId = Number(el.dataset.apPhoto);
+      const photo = query('SELECT * FROM photos WHERE id=?', [photoId])[0];
+      if (photo) openBuyerLightbox(photo.data_url, photo.caption || '');
+    });
+  });
+}
+
+function renderApCarCard({ case: c, current, historical }, today, isCurrent) {
+  const photos = listPhotos(c.id).slice(0, 4);
+  const buyer = c.primary_buyer_id ? getParty(c.primary_buyer_id) : null;
+  const seller = c.seller_id ? getParty(c.seller_id) : null;
+  const apHistory = listApHolderHistory(c.id);
+
+  const status = c.progress_status || 'inquiry';
+  const statusLabel = BUYER_STATUS_LABELS[status] || status;
+  const progColor = progressColor(status);
+
+  const daysUntil = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (Number.isNaN(+d)) return null;
+    return Math.floor((d - today) / 86400000);
+  };
+  const etdDays = daysUntil(c.etd);
+  const etaDays = daysUntil(c.eta);
+  const exportDays = daysUntil(c.export_scheduled_date);
+
+  const countdownText = (days) => {
+    if (days == null) return '';
+    if (days < 0) return `<div class="ap-milestone__countdown ap-milestone__countdown--urgent">${-days} day${-days === 1 ? '' : 's'} overdue</div>`;
+    if (days === 0) return `<div class="ap-milestone__countdown ap-milestone__countdown--urgent">Today</div>`;
+    return `<div class="ap-milestone__countdown">in ${days} day${days === 1 ? '' : 's'}</div>`;
+  };
+
+  // Document status — which docs have been issued?
+  const docStatus = DOC_TYPES.filter(t => t.implemented).map(t => {
+    const d = getCaseDoc(c.id, t.key);
+    return { key: t.key, label: t.label, issued: !!d };
+  });
+
+  return `
+    <div class="ap-car">
+      <div class="ap-car__head">
+        <div>
+          <h3 class="ap-car__title">${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim()) || 'Vehicle info pending'}</h3>
+          <span class="ap-car__code">${escapeHtml(c.case_code || '#' + c.id)}</span>
+          ${c.invoice_ref_no ? `<span class="ap-car__code" style="margin-left:4px">Ref: ${escapeHtml(c.invoice_ref_no)}</span>` : ''}
+          ${!isCurrent ? '<span class="ap-historical-tag" style="margin-left:6px">📜 Historical</span>' : ''}
+        </div>
+        <span class="badge badge--${progColor}" style="font-size:12px;padding:6px 14px">${escapeHtml(statusLabel)}</span>
+      </div>
+
+      <div class="ap-car__body">
+        <!-- LEFT column: Vehicle technical specs + photos -->
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="ap-section">
+            <div class="ap-section__title">🔧 Vehicle Specifications</div>
+            <dl class="ap-kv">
+              ${c.chassis_no ? `<dt>Chassis No.</dt><dd>${escapeHtml(c.chassis_no)}</dd>` : ''}
+              ${c.engine_no ? `<dt>Engine No.</dt><dd>${escapeHtml(c.engine_no)}</dd>` : ''}
+              ${c.model_code ? `<dt>Model Code</dt><dd>${escapeHtml(c.model_code)}</dd>` : ''}
+              ${c.year_month ? `<dt>Year</dt><dd>${escapeHtml(c.year_month)}</dd>` : ''}
+              ${c.engine_capacity ? `<dt>Engine Capacity</dt><dd>${escapeHtml(c.engine_capacity)}</dd>` : ''}
+              ${c.displacement_cc ? `<dt>Displacement</dt><dd>${escapeHtml(c.displacement_cc)} cc</dd>` : ''}
+              ${c.fuel ? `<dt>Fuel</dt><dd>${escapeHtml(c.fuel)}</dd>` : ''}
+              ${c.exterior_color ? `<dt>Color</dt><dd>${escapeHtml(c.exterior_color)}</dd>` : ''}
+              ${c.weight_kg ? `<dt>Weight</dt><dd>${escapeHtml(c.weight_kg)} kg</dd>` : ''}
+              ${c.gross_weight ? `<dt>Gross Weight</dt><dd>${escapeHtml(c.gross_weight)} kg</dd>` : ''}
+              ${c.length_cm || c.width_cm || c.height_cm ? `<dt>Dimensions</dt><dd>${escapeHtml(c.length_cm || '')}cm × ${escapeHtml(c.width_cm || '')}cm × ${escapeHtml(c.height_cm || '')}cm</dd>` : ''}
+              ${c.hs_code ? `<dt>HS Code</dt><dd>${escapeHtml(c.hs_code)}</dd>` : ''}
+            </dl>
+          </div>
+
+          <div class="ap-section">
+            <div class="ap-section__title">📸 Photos</div>
+            ${photos.length ? `
+              <div class="ap-photos">
+                ${photos.map(p => `
+                  <div class="ap-photo" data-ap-photo="${p.id}">
+                    <img src="${p.data_url}" alt="${escapeHtml(p.caption || '')}">
+                  </div>
+                `).join('')}
+              </div>
+            ` : `
+              <div class="ap-photos--empty">No photos yet</div>
+            `}
+          </div>
+        </div>
+
+        <!-- RIGHT column: Customs/import + shipping + parties + docs -->
+        <div style="display:flex;flex-direction:column;gap:14px">
+          <div class="ap-section">
+            <div class="ap-section__title">📋 Customs & Registration</div>
+            <dl class="ap-kv">
+              ${c.export_cert_no ? `<dt>Export Cert No.</dt><dd>${escapeHtml(c.export_cert_no)}</dd>` : ''}
+              ${c.reference_no ? `<dt>Reference No.</dt><dd style="font-family:monospace;font-size:11px">${escapeHtml(c.reference_no)}</dd>` : ''}
+              ${c.registration_no ? `<dt>Registration No.</dt><dd>${escapeHtml(c.registration_no)}</dd>` : ''}
+              ${c.first_reg_date ? `<dt>First Reg. Date</dt><dd>${escapeHtml(c.first_reg_date)}</dd>` : ''}
+              ${c.classification_vehicle ? `<dt>Classification</dt><dd>${escapeHtml(c.classification_vehicle)}</dd>` : ''}
+              ${c.body_type ? `<dt>Body Type</dt><dd>${escapeHtml(c.body_type)}</dd>` : ''}
+              ${c.fixed_number ? `<dt>Fixed Number</dt><dd>${escapeHtml(c.fixed_number)} person</dd>` : ''}
+            </dl>
+          </div>
+
+          <div class="ap-section">
+            <div class="ap-section__title">⚓ Shipping Milestones</div>
+            <div class="ap-shipping-milestones">
+              ${c.vessel_name ? `
+                <div class="ap-milestone">
+                  <div class="ap-milestone__label">Vessel</div>
+                  <div class="ap-milestone__value">${escapeHtml(c.vessel_name)}${c.voyage_no ? ' / ' + escapeHtml(c.voyage_no) : ''}</div>
+                </div>
+              ` : ''}
+              ${c.port_of_loading ? `
+                <div class="ap-milestone">
+                  <div class="ap-milestone__label">Port of Loading</div>
+                  <div class="ap-milestone__value">${escapeHtml(c.port_of_loading)}</div>
+                </div>
+              ` : ''}
+              ${c.port_of_discharge ? `
+                <div class="ap-milestone">
+                  <div class="ap-milestone__label">Port of Discharge</div>
+                  <div class="ap-milestone__value">${escapeHtml(c.port_of_discharge)}</div>
+                </div>
+              ` : ''}
+              ${c.etd ? `
+                <div class="ap-milestone">
+                  <div class="ap-milestone__label">ETD</div>
+                  <div class="ap-milestone__value">${escapeHtml(c.etd)}</div>
+                  ${countdownText(etdDays)}
+                </div>
+              ` : ''}
+              ${c.eta ? `
+                <div class="ap-milestone">
+                  <div class="ap-milestone__label">ETA</div>
+                  <div class="ap-milestone__value">${escapeHtml(c.eta)}</div>
+                  ${countdownText(etaDays)}
+                </div>
+              ` : ''}
+              ${c.export_scheduled_date ? `
+                <div class="ap-milestone">
+                  <div class="ap-milestone__label">Export Date</div>
+                  <div class="ap-milestone__value">${escapeHtml(c.export_scheduled_date)}</div>
+                  ${countdownText(exportDays)}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+
+          <div class="ap-section">
+            <div class="ap-section__title">👥 Related Parties</div>
+            <dl class="ap-kv">
+              ${seller ? `<dt>Seller (Exporter)</dt><dd>${escapeHtml(seller.company_name)}</dd>` : ''}
+              ${buyer ? `<dt>Buyer (Importer)</dt><dd>${escapeHtml(buyer.company_name)}</dd>` : ''}
+            </dl>
+          </div>
+
+          <div class="ap-section">
+            <div class="ap-section__title">📄 Document Status</div>
+            <div class="ap-doc-status">
+              ${docStatus.map(d => `
+                <span class="ap-doc-pill ${d.issued ? 'ap-doc-pill--issued' : ''}">
+                  ${d.issued ? '✓' : '○'} ${escapeHtml(d.label)}
+                </span>
+              `).join('')}
+            </div>
+          </div>
+
+          ${apHistory.length > 0 ? `
+            <div class="ap-history-mini">
+              <div class="ap-history-mini__title">📜 AP Holder Transition History</div>
+              ${apHistory.slice(0, 5).map(h => {
+                const fromName = h.old_ap_holder_id ? (getParty(h.old_ap_holder_id)?.company_name || '#' + h.old_ap_holder_id) : '(none)';
+                const toName   = h.new_ap_holder_id ? (getParty(h.new_ap_holder_id)?.company_name || '#' + h.new_ap_holder_id) : '(none)';
+                return `<div class="ap-history-mini__row">${escapeHtml(new Date(h.changed_at).toLocaleDateString('ja-JP'))} · ${escapeHtml(fromName)} → ${escapeHtml(toName)}</div>`;
+              }).join('')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // ============================================================================

@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=25">
-<link rel="stylesheet" href="css/documents.css?v=25">
+<link rel="stylesheet" href="css/app.css?v=26">
+<link rel="stylesheet" href="css/documents.css?v=26">
 </head>
 <body>
 
@@ -121,6 +121,7 @@
   <button class="tab" data-tab="editor">案件編集</button>
   <button class="tab" data-tab="preview">書類プレビュー</button>
   <button class="tab admin-only" data-tab="buyer-portal">Buyerポータル</button>
+  <button class="tab admin-only" data-tab="ap-portal">AP Holderポータル</button>
   <button class="tab" data-tab="settings">設定</button>
 </nav>
 
@@ -750,6 +751,29 @@
     </div>
 
     <div id="buyer-portal-content" class="buyer-portal-wrap"></div>
+  </section>
+
+  <!-- =========================  AP HOLDER PORTAL PREVIEW  ========================= -->
+  <section id="tab-ap-portal" class="tab-pane admin-only">
+    <div class="portal-admin-banner portal-admin-banner--ap">
+      <div class="portal-admin-banner__title">
+        🎭 <strong>プレビューモード</strong>
+        <span style="font-weight:normal;color:#6b7280">実 AP Holder にはこのような自分専用ページが表示されます</span>
+      </div>
+      <div class="portal-admin-banner__controls">
+        <label style="display:flex;gap:6px;align-items:center">
+          AP Holder選択:
+          <select id="ap-portal-select" class="input" style="min-width:280px">
+            <option value="">AP Holder を選択してください</option>
+          </select>
+        </label>
+        <div style="font-size:11px;color:#9ca3af;margin-left:auto">
+          💡 本実装では AP Holder が <code>/ap/login</code> から自分でログインします
+        </div>
+      </div>
+    </div>
+
+    <div id="ap-portal-content" class="ap-portal-wrap"></div>
   </section>
 
   <!-- =========================  SETTINGS  ========================= -->

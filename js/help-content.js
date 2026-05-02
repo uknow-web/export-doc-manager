@@ -151,6 +151,75 @@ export const HELP_SECTIONS = [
     `,
   },
   {
+    id: 'ap-holder-portal-preview',
+    title: 'AP Holderポータル（プレビュー）',
+    content: `
+<h1>AP Holderポータル（プレビュー）</h1>
+<p>Buyerポータルと同様に、AP Holder 向けにも専用のマイページプレビュー画面を用意しています。管理者が選択した AP Holder にどのような画面が表示されるかを確認できます。</p>
+
+<h2>Buyerポータルとの違い</h2>
+<table>
+  <tr><th>項目</th><th>Buyerポータル</th><th>AP Holderポータル</th></tr>
+  <tr><td>テーマカラー</td><td>青系（顧客向け）</td><td>琥珀系（事務処理向け）</td></tr>
+  <tr><td>サマリー指標</td><td>売上・取引数・残高</td><td>有効許可数・出荷待ち・輸送中・到着</td></tr>
+  <tr><td>車両情報の重点</td><td>外装・装備</td><td>シャシ番号・寸法・重量・HSコード</td></tr>
+  <tr><td>表示する情報</td><td>支払い状況中心</td><td>輸入許可・通関・船積マイルストーン</td></tr>
+  <tr><td>履歴</td><td>—</td><td>AP Holder 引継履歴を表示</td></tr>
+</table>
+
+<h2>AP Holderに表示される内容</h2>
+<ul>
+  <li><strong>サマリーカード</strong>: 有効許可数 / 出荷待ち / 輸送中 / 到着・通関完了</li>
+  <li><strong>Vehicles Under Your AP セクション</strong>: 現在 AP を保有している案件</li>
+  <li><strong>Historical Cases セクション</strong>: 過去に AP Holder だった案件（権利譲渡後など）</li>
+  <li>各案件カードに以下の情報:
+    <ul>
+      <li>🔧 <strong>Vehicle Specifications</strong>: 車台番号・原動機・型式・寸法・重量・HSコード（通関に必要な技術仕様）</li>
+      <li>📋 <strong>Customs & Registration</strong>: Export Cert No / Reference No / Registration / Body Type 等</li>
+      <li>⚓ <strong>Shipping Milestones</strong>: Vessel / Ports / ETD / ETA カウントダウン</li>
+      <li>👥 <strong>Related Parties</strong>: Seller・Buyer 情報</li>
+      <li>📄 <strong>Document Status</strong>: 5書類の発行済み/未発行</li>
+      <li>📸 <strong>Photos</strong>: 車両写真</li>
+      <li>📜 <strong>Transition History</strong>: AP Holder 変更履歴の要約</li>
+    </ul>
+  </li>
+</ul>
+
+<h2>AP Holder の特定ロジック</h2>
+<p>AP Holderポータルは、選択された Party が以下のいずれかに該当する案件を表示します:</p>
+<ol>
+  <li><strong>現在の AP Holder</strong>: 案件の <code>ap_holder_id</code> がこのPartyを指している</li>
+  <li><strong>書類の AP Holder</strong>: いずれかの書類の <code>ap_holder_id</code> がこのPartyを指している</li>
+  <li><strong>履歴上の AP Holder</strong>: 過去に AP Holder だった（変更履歴に記録あり）</li>
+</ol>
+<p>1〜2は「Vehicles Under Your AP」セクション、3のみは「Historical Cases」セクションに表示されます。</p>
+
+<h2>使い方</h2>
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>ヘッダーの「AP Holderポータル」タブを開く（管理者のみ）</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>「AP Holder選択」ドロップダウンから対象を選ぶ（AP Holderロール優先 + Buyer兼務候補もあり）</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>その AP Holder が「自分のマイページ」として見るであろう画面がプレビュー表示される</p></div>
+</div>
+
+<h2>本実装時の追加機能（予定）</h2>
+<ul>
+  <li>AP Holder専用ログインURL（<code>/ap/login</code>）</li>
+  <li>初回パスワード設定フロー</li>
+  <li>書類への署名/承認操作</li>
+  <li>通関書類のアップロード</li>
+</ul>
+
+<blockquote>💡 表示は全て英語です（海外のAP Holder想定）。管理者のプレビューモードバナーのみ日本語。</blockquote>
+    `,
+  },
+  {
     id: 'ap-holder',
     title: 'AP Holder（A.P.保有者）',
     content: `
