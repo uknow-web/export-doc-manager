@@ -45,11 +45,34 @@ import {
 } from './auth.js';
 import { getDek } from './db.js';
 import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.js';
+import { VEHICLE_CATEGORIES, categoryLabel, categoryEnLabel, categoryIcon, categoryBadge, normalizeCategory } from './categories.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
   deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
   getUserByUsername, appendAuditLog, listAuditLog,
 } from './db.js';
+
+// Module-level current category filters (persisted via UI tab clicks)
+let CASE_LIST_CAT = 'all';
+let MODEL_LIST_CAT = 'all';
+let DASH_CAT = 'all';
+
+// Wire up the three sets of category tabs (case list, model list, dashboard)
+function setupCategoryTabs() {
+  const wireTabs = (containerId, onChange) => {
+    const wrap = document.getElementById(containerId);
+    if (!wrap) return;
+    wrap.querySelectorAll('.cat-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        wrap.querySelectorAll('.cat-tab').forEach(b => b.classList.toggle('cat-tab--active', b === btn));
+        onChange(btn.dataset.cat);
+      });
+    });
+  };
+  wireTabs('case-cat-tabs', (cat) => { CASE_LIST_CAT = cat; renderCases(); });
+  wireTabs('model-cat-tabs', (cat) => { MODEL_LIST_CAT = cat; renderVehicleModels(); });
+  wireTabs('dash-cat-tabs', (cat) => { DASH_CAT = cat; renderDashboard(); });
+}
 
 // Supported document types. Only 'sales_confirmation' is implemented now.
 const DOC_TYPES = [
@@ -94,6 +117,7 @@ const DOC_TYPES = [
   startReminderScheduler();
   setupAuthRouting();
   setupBuyerPortal();
+  setupCategoryTabs();
   renderCases();
   renderParties();
   renderVehicleModels();
@@ -535,22 +559,28 @@ function setupVehicleModels() {
 }
 
 function renderVehicleModels() {
-  const rows = listVehicleModels();
+  let rows = listVehicleModels();
+  if (MODEL_LIST_CAT !== 'all') {
+    rows = rows.filter(m => normalizeCategory(m.category) === MODEL_LIST_CAT);
+  }
   const tbody = document.querySelector('#table-models tbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#6b7280;padding:20px">モデルが登録されていません。</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#6b7280;padding:20px">該当するモデルがありません。</td></tr>';
     return;
   }
-  tbody.innerHTML = rows.map(m => `
+  tbody.innerHTML = rows.map(m => {
+    const cat = normalizeCategory(m.category);
+    return `
     <tr>
+      <td><span class="badge badge--${categoryBadge(cat)}">${categoryIcon(cat)} ${escapeHtml(categoryLabel(cat))}</span></td>
       <td>${escapeHtml(m.maker || '')}</td>
       <td>${escapeHtml(m.model_name || '')}</td>
       <td>${escapeHtml(m.model_code || '')}</td>
       <td>${escapeHtml(m.engine_capacity || '')}</td>
       <td>${escapeHtml(m.hs_code || '')}</td>
       <td><button class="btn" data-edit-model="${m.id}">編集</button></td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
   tbody.querySelectorAll('[data-edit-model]').forEach(btn => {
     btn.addEventListener('click', () => openModelEditor(Number(btn.dataset.editModel)));
   });
@@ -628,6 +658,7 @@ function renderCases() {
     payment_status:  document.getElementById('filter-payment').value,
     tag:             document.getElementById('filter-tag').value,
     favorites_only:  document.getElementById('filter-favorites').checked,
+    vehicle_category: CASE_LIST_CAT,
   };
   const rows = listCases(q, filters);
   const tbody = document.querySelector('#table-cases tbody');
@@ -654,6 +685,8 @@ function renderCases() {
       const buyerCell = buyer
         ? escapeHtml(buyer.company_name)
         : '<span style="color:#9ca3af;font-size:11px">未設定</span>';
+      const cat = normalizeCategory(c.vehicle_category);
+      const catIcon = categoryIcon(cat);
       return `
       <tr class="${c.is_favorite ? 'row-favorite' : ''}">
         <td class="case-thumb-cell">${thumbHtml}</td>
@@ -664,7 +697,7 @@ function renderCases() {
           ${tagsHtml ? `<div style="margin-top:2px">${tagsHtml}</div>` : ''}
         </td>
         <td style="font-size:12px">${buyerCell}</td>
-        <td>${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim())}</td>
+        <td><span title="${escapeHtml(categoryLabel(cat))}">${catIcon}</span> ${escapeHtml(`${c.maker || ''} ${c.model_name || ''}`.trim())}</td>
         <td>${escapeHtml(c.chassis_no || '')}</td>
         <td class="mask-amount">${c.amount_jpy ? '¥' + Number(c.amount_jpy).toLocaleString() : ''}</td>
         <td>${escapeHtml(c.etd || '')}</td>
@@ -796,6 +829,10 @@ function setupEditor() {
       const el = form.elements[f];
       if (el) el.value = m[f] ?? '';
     }
+    // Also sync category radio buttons to match the model's category
+    const cat = normalizeCategory(m.category);
+    const radio = form.querySelector(`input[name="vehicle_category"][value="${cat}"]`);
+    if (radio) radio.checked = true;
     toast(`モデル「${m.maker} ${m.model_name}」を適用しました`, 'success');
   });
 
@@ -1336,6 +1373,11 @@ function setupDashboard() {
   document.getElementById('dash-kanban-hide-done').addEventListener('change', renderKanban);
 }
 
+// Helper: list cases respecting the dashboard's category filter
+function dashCases() {
+  return listCases('', { vehicle_category: DASH_CAT });
+}
+
 function renderDashboard() {
   renderTodayPanel();
   renderMonthlyTrend();
@@ -1356,7 +1398,7 @@ function renderTodayPanel() {
   document.getElementById('dash-today-sub').textContent =
     today.toLocaleDateString('ja-JP', { weekday: 'long', month: 'long', day: 'numeric' });
 
-  const allCases = listCases();
+  const allCases = dashCases();
   const thisMonth = allCases.filter(r => (r.invoice_date || r.etd || '').slice(0, 7) === ym);
   const prevMonth = allCases.filter(r => (r.invoice_date || r.etd || '').slice(0, 7) === prevYm);
 
@@ -1408,7 +1450,7 @@ function renderTodayPanel() {
     </div>
     <div class="dash-kpi">
       <div class="dash-kpi__label">総未回収残高</div>
-      <div class="dash-kpi__value" style="color:#fca5a5">¥${casesSummary().outstanding.toLocaleString()}</div>
+      <div class="dash-kpi__value" style="color:#fca5a5">¥${casesSummary({ vehicle_category: DASH_CAT }).outstanding.toLocaleString()}</div>
       <div class="dash-kpi__delta">全案件通算</div>
     </div>
   `;
@@ -1528,7 +1570,7 @@ function renderMonthlyTrend() {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
   }
-  const allCases = listCases();
+  const allCases = dashCases();
 
   const bucketsByKey = new Map(keys.map(k => [k, []]));
   for (const r of allCases) {
@@ -1625,7 +1667,7 @@ function avgPaymentVelocity(rows) {
 function renderKanban() {
   const host = document.getElementById('dash-kanban');
   const hideDone = document.getElementById('dash-kanban-hide-done').checked;
-  const allCases = listCases();
+  const allCases = dashCases();
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
   const visibleStatuses = PROGRESS_STATUSES.filter(s =>
@@ -1671,7 +1713,7 @@ function renderKanban() {
 // Breakdown charts (existing, unchanged except for progress chart added)
 // ---------------------------------------------------------------------------
 function renderBreakdownCharts() {
-  const rows = listCases();
+  const rows = dashCases();
   const parties = listParties('all');
   const partyName = (id) => parties.find(p => p.id === id)?.company_name || '（未設定）';
 
@@ -3530,18 +3572,39 @@ function renderBuyerPortal(buyerId) {
       </div>
     </div>
 
-    <h2 class="bp-section-title">📋 Your Vehicles</h2>
-
     ${cases.length === 0 ? `
+      <h2 class="bp-section-title">📋 Your Vehicles</h2>
       <div class="bp-empty">
         <div class="bp-empty__icon">🚗</div>
         <div>No vehicles on file yet.</div>
       </div>
-    ` : `
-      <div class="bp-car-list">
-        ${cases.map(c => renderBuyerCarCard(c, today)).join('')}
-      </div>
-    `}
+    ` : (() => {
+      // Group cases by category (preserve definition order)
+      const groups = new Map();
+      for (const cat of VEHICLE_CATEGORIES) groups.set(cat.key, []);
+      for (const c of cases) {
+        const k = normalizeCategory(c.vehicle_category);
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(c);
+      }
+      // Render only non-empty groups; if only one group has items, omit the divider
+      const filledGroups = [...groups.entries()].filter(([, list]) => list.length > 0);
+      const showDividers = filledGroups.length > 1;
+      return filledGroups.map(([catKey, list]) => {
+        const cat = VEHICLE_CATEGORIES.find(c => c.key === catKey);
+        const heading = cat
+          ? `${cat.icon} ${cat.en}`
+          : 'Other Vehicles';
+        return `
+          ${showDividers
+            ? `<div class="bp-cat-divider">${heading} (${list.length})</div>`
+            : `<h2 class="bp-section-title">📋 ${heading}</h2>`}
+          <div class="bp-car-list">
+            ${list.map(c => renderBuyerCarCard(c, today)).join('')}
+          </div>
+        `;
+      }).join('');
+    })()}
 
     <div class="bp-footer">
       Contact: ${escapeHtml(getSetting('mail_from', 'info@kmt.kyoto'))}<br>

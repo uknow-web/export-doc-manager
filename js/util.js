@@ -46,12 +46,17 @@ export function bulletize(text) {
     .filter(Boolean);
 }
 
-// Serialize a <form> into a plain object (handles multi-value inputs minimally).
+// Serialize a <form> into a plain object.
+//   - <input type="checkbox"> → 0/1
+//   - <input type="number">   → number or null
+//   - <input type="radio">    → value of the checked radio in the group
+//   - everything else         → element.value
 export function formToObject(form) {
   const out = {};
   for (const el of form.elements) {
     if (!el.name) continue;
     if (el.type === 'checkbox') { out[el.name] = el.checked ? 1 : 0; continue; }
+    if (el.type === 'radio')    { if (el.checked) out[el.name] = el.value; continue; }
     if (el.type === 'number')   { out[el.name] = el.value === '' ? null : Number(el.value); continue; }
     out[el.name] = el.value;
   }
@@ -63,6 +68,14 @@ export function fillForm(form, data) {
   for (const el of form.elements) {
     if (!el.name) continue;
     const v = data[el.name];
+    if (el.type === 'radio') {
+      el.checked = (v != null && String(el.value) === String(v));
+      continue;
+    }
+    if (el.type === 'checkbox') {
+      el.checked = !!v;
+      continue;
+    }
     if (v == null) { el.value = ''; continue; }
     el.value = String(v);
   }

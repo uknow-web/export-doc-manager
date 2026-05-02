@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS parties (
 
 CREATE TABLE IF NOT EXISTS vehicle_models (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  category           TEXT DEFAULT 'car',
   maker              TEXT,
   model_name         TEXT,
   model_code         TEXT,
@@ -218,6 +219,7 @@ CREATE TABLE IF NOT EXISTS cases (
   /* --- Tags & favorites --- */
   tags                      TEXT,
   is_favorite               INTEGER DEFAULT 0,
+  vehicle_category          TEXT DEFAULT 'car',
 
   created_at         TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (seller_id)        REFERENCES parties(id),
@@ -455,6 +457,7 @@ function migrate() {
     ['tags','TEXT'],
     ['is_favorite','INTEGER DEFAULT 0'],
     ['primary_buyer_id','INTEGER'],
+    ['vehicle_category',"TEXT DEFAULT 'car'"],
   ];
   for (const [c, d] of newCaseCols) addColumnIfMissing('cases', c, d);
 
@@ -467,6 +470,8 @@ function migrate() {
     ['password_changed_at', 'TEXT'],
   ];
   for (const [c, d] of newUserCols) addColumnIfMissing('users', c, d);
+
+  addColumnIfMissing('vehicle_models', 'category', "TEXT DEFAULT 'car'");
 }
 
 function seedDefaultSeller() {
@@ -494,10 +499,11 @@ function seedDefaultSeller() {
 
 function seedDefaultVehicleModel() {
   const stmt = db.prepare(`INSERT INTO vehicle_models
-    (maker, model_name, model_code, engine_capacity, displacement_cc, fuel,
+    (category, maker, model_name, model_code, engine_capacity, displacement_cc, fuel,
      weight_kg, measurement_m3, hs_code, specification, note)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   stmt.run([
+    'car',
     'TOYOTA',
     'ALPHARD Z',
     '3BA-AGH40W',
@@ -605,7 +611,7 @@ export function getParty(id) {
 
 // ---- Vehicle Model --------------------------------------------------------
 const VEHICLE_MODEL_FIELDS = [
-  'maker','model_name','model_code','engine_capacity','displacement_cc','fuel',
+  'category','maker','model_name','model_code','engine_capacity','displacement_cc','fuel',
   'weight_kg','measurement_m3','hs_code','specification','note',
 ];
 
@@ -665,7 +671,7 @@ const CASE_FIELDS = [
   'spec_no','classification_no','owner_code',
   'fuel_classification_spec','engine_model','maker_code','issuer_title',
   'progress_status','payment_status','status_note','status_updated_at',
-  'tags','is_favorite',
+  'tags','is_favorite','vehicle_category',
 ];
 
 export async function saveCase(data) {
@@ -718,6 +724,10 @@ export function listCases(search = '', filters = {}) {
   }
   if (filters.favorites_only) {
     where.push('is_favorite = 1');
+  }
+  if (filters.vehicle_category && filters.vehicle_category !== 'all') {
+    where.push('COALESCE(vehicle_category, \'car\') = ?');
+    params.push(filters.vehicle_category);
   }
   // Favorites pinned to top, then newest first.
   const sql = `SELECT * FROM cases${where.length ? ' WHERE ' + where.join(' AND ') : ''}

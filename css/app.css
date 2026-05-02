@@ -1016,6 +1016,79 @@ input:focus, select:focus, textarea:focus {
   word-break: break-all;
 }
 
+/* ========== Category tabs (Cars / Motorcycles) ========== */
+.cat-tabs {
+  display: inline-flex;
+  background: #f3f4f6;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 2px;
+}
+.cat-tab {
+  background: transparent;
+  border: none;
+  padding: 6px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #6b7280;
+  font-weight: 500;
+  transition: background .12s, color .12s;
+  font-family: inherit;
+}
+.cat-tab:hover { color: #1f2937; }
+.cat-tab--active {
+  background: #fff;
+  color: #1f2937;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+
+/* Inline category radio for case editor */
+.cat-radio-group {
+  display: flex;
+  gap: 12px;
+}
+.cat-radio {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  flex: 1;
+  font-size: 14px;
+  background: #fff;
+  transition: all .12s;
+}
+.cat-radio:has(input:checked) {
+  border-color: #2563eb;
+  background: #eff6ff;
+  font-weight: 600;
+}
+.cat-radio input[type="radio"] { width: auto !important; margin: 0; }
+
+/* Section divider for Buyer portal category split */
+.bp-cat-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 28px 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.bp-cat-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #cbd5e1;
+}
+
 /* ========== Case thumbnail in list ========== */
 .case-thumb-cell { padding: 4px !important; width: 56px; }
 .case-thumb {

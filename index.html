@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=21">
-<link rel="stylesheet" href="css/documents.css?v=21">
+<link rel="stylesheet" href="css/app.css?v=22">
+<link rel="stylesheet" href="css/documents.css?v=22">
 </head>
 <body>
 
@@ -146,6 +146,11 @@
       </label>
       <button id="btn-filter-clear" class="btn btn--ghost" type="button">フィルタ解除</button>
     </div>
+    <div class="cat-tabs" id="case-cat-tabs" style="margin-bottom:12px">
+      <button type="button" class="cat-tab cat-tab--active" data-cat="all">すべて</button>
+      <button type="button" class="cat-tab" data-cat="car">🚗 自動車</button>
+      <button type="button" class="cat-tab" data-cat="bike">🏍 オートバイ</button>
+    </div>
     <div id="cases-summary" class="stat-row">
       <div class="stat-row__item">
         <span class="stat-row__label">件数</span>
@@ -255,6 +260,12 @@
   <!-- =========================  DASHBOARD  ========================= -->
   <section id="tab-dashboard" class="tab-pane">
 
+    <div class="cat-tabs" id="dash-cat-tabs" style="margin-bottom:16px">
+      <button type="button" class="cat-tab cat-tab--active" data-cat="all">すべて</button>
+      <button type="button" class="cat-tab" data-cat="car">🚗 自動車</button>
+      <button type="button" class="cat-tab" data-cat="bike">🏍 オートバイ</button>
+    </div>
+
     <!-- ①今月のサマリー + 今日やること -->
     <div class="dash-top">
       <div class="dash-today-panel">
@@ -353,12 +364,23 @@
   <section id="tab-models" class="tab-pane">
     <div class="toolbar">
       <button id="btn-new-model" class="btn btn--primary" type="button">+ 新規モデル</button>
-      <span class="hint">Maker / Model Code / HS / Specification など、車種共通で繰り返し使う情報を登録します。案件編集で選択すると自動入力されます。</span>
+      <div class="cat-tabs" id="model-cat-tabs">
+        <button type="button" class="cat-tab cat-tab--active" data-cat="all">すべて</button>
+        <button type="button" class="cat-tab" data-cat="car">🚗 自動車</button>
+        <button type="button" class="cat-tab" data-cat="bike">🏍 オートバイ</button>
+      </div>
+      <span class="hint">Maker / Model Code / HS / Specification など、車種共通で繰り返し使う情報を登録します。</span>
     </div>
     <div id="model-editor" class="panel hidden">
       <h3 id="model-editor-title">車両モデル編集</h3>
       <form id="form-model" class="form-grid">
         <input type="hidden" name="id">
+        <label>カテゴリ
+          <select name="category" required>
+            <option value="car">🚗 自動車 (Car)</option>
+            <option value="bike">🏍 オートバイ (Motorcycle)</option>
+          </select>
+        </label>
         <label>Maker <input name="maker" placeholder="TOYOTA" required></label>
         <label>Model Name <input name="model_name" placeholder="ALPHARD Z" required></label>
         <label>Model Code <input name="model_code" placeholder="3BA-AGH40W"></label>
@@ -384,6 +406,7 @@
     <table id="table-models" class="data-table">
       <thead>
         <tr>
+          <th style="width:80px">カテゴリ</th>
           <th>Maker</th>
           <th>Model Name</th>
           <th>Model Code</th>
@@ -418,6 +441,18 @@
       <div class="editor-pane editor-pane--active" data-editor-pane="case-info">
       <h2>案件情報</h2>
       <div class="form-grid">
+        <label class="span-2">カテゴリ
+          <div class="cat-radio-group">
+            <label class="cat-radio">
+              <input type="radio" name="vehicle_category" value="car" checked>
+              <span>🚗 自動車</span>
+            </label>
+            <label class="cat-radio">
+              <input type="radio" name="vehicle_category" value="bike">
+              <span>🏍 オートバイ</span>
+            </label>
+          </div>
+        </label>
         <label>Case Code (Marks) <input name="case_code" placeholder="RAYA_003" required></label>
         <label>Invoice Ref No. <input name="invoice_ref_no" placeholder="MA_20250918_002"></label>
         <label>Invoice Date <input name="invoice_date" type="date"></label>
