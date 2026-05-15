@@ -48,7 +48,7 @@ import {
 import { getDek } from './db.js';
 import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.js';
 import { VEHICLE_CATEGORIES, categoryLabel, categoryEnLabel, categoryIcon, categoryBadge, normalizeCategory, defaultHsCode } from './categories.js';
-import { DEREG_CHECKLIST, totalItems as deregTotalItems } from './dereg-checklist.js';
+import { DEREG_CHECKLIST, totalItems as deregTotalItems, requiredDocumentsList, DEREG_REFERENCES } from './dereg-checklist.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
   deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
@@ -122,6 +122,7 @@ const DOC_TYPES = [
   setupBuyerPortal();
   setupApPortal();
   setupCategoryTabs();
+  setupDeregGuide();
   renderCases();
   renderParties();
   renderVehicleModels();
@@ -386,6 +387,7 @@ function switchTab(name) {
   if (name === 'settings')    renderSettings();
   if (name === 'buyer-portal') renderBuyerPortalSelector();
   if (name === 'ap-portal')    renderApPortalSelector();
+  if (name === 'dereg-guide')  renderDeregGuide();
   if (name === 'editor')      { populateSellerSelect(); populateVehicleModelSelect(); populateNotifyPartySelect(); populatePrimaryBuyerSelect(); populateApHolderSelect(); }
 }
 
@@ -3695,6 +3697,225 @@ function renderDeregChecklist(caseId) {
       <div class="dereg-progress-bar"><div class="dereg-progress-fill" style="width:${pct}%"></div></div>
     </div>
   `;
+}
+
+// ============================================================================
+// Dereg Procedure Guide — top-level reference + optional case progress
+// ============================================================================
+
+let DG_CURRENT_CASE = null; // case_id or null (general reference mode)
+
+function setupDeregGuide() {
+  const sel = document.getElementById('dg-case-select');
+  if (!sel) return;
+  sel.addEventListener('change', () => {
+    DG_CURRENT_CASE = Number(sel.value) || null;
+    renderDeregGuide();
+  });
+  const transferCb = document.getElementById('dg-transfer-needed');
+  if (transferCb) {
+    transferCb.addEventListener('change', async () => {
+      if (!DG_CURRENT_CASE) return;
+      run('UPDATE cases SET dereg_transfer_needed=? WHERE id=?',
+          [transferCb.checked ? 1 : 0, DG_CURRENT_CASE]);
+      await persist();
+      renderDeregGuide();
+    });
+  }
+}
+
+function renderDeregGuide() {
+  populateDeregCaseSelector();
+  renderDeregGuideOverview();
+  renderDeregGuideSteps();
+  renderDeregGuideSidebar();
+}
+
+function populateDeregCaseSelector() {
+  const sel = document.getElementById('dg-case-select');
+  if (!sel) return;
+  const cases = listCases();
+  const current = sel.value;
+  sel.innerHTML = '<option value="">（案件を選択しない / 一般ガイドとして閲覧）</option>' +
+    cases.map(c => {
+      const label = `${c.case_code || '#' + c.id}${c.maker || c.model_name ? ` — ${c.maker || ''} ${c.model_name || ''}`.trim() : ''}`;
+      return `<option value="${c.id}">${escapeHtml(label)}</option>`;
+    }).join('');
+  if (current) {
+    sel.value = current;
+    DG_CURRENT_CASE = Number(current) || null;
+  }
+
+  // Transfer-needed checkbox visibility
+  const wrap = document.getElementById('dg-transfer-needed-wrap');
+  const cb   = document.getElementById('dg-transfer-needed');
+  if (DG_CURRENT_CASE) {
+    const c = getCase(DG_CURRENT_CASE);
+    cb.checked = !!c?.dereg_transfer_needed;
+    wrap.style.display = 'inline-flex';
+  } else {
+    cb.checked = false;
+    wrap.style.display = 'none';
+  }
+}
+
+function renderDeregGuideOverview() {
+  const host = document.getElementById('dg-overview');
+  if (!host) return;
+  const caseRow = DG_CURRENT_CASE ? getCase(DG_CURRENT_CASE) : null;
+  const caseName = caseRow ? (caseRow.case_code || '#' + caseRow.id) : null;
+  host.innerHTML = `
+    <strong>📖 概要:</strong> 中古車を輸出するには <strong>国土交通省（運輸支局）で輸出抹消登録</strong> を行い、輸出抹消仮登録証明書（Export Certificate）を取得する必要があります。手続きは通常以下のフローで進めます:
+    <ol>
+      <li><strong>事前準備</strong> — 住所コード・印紙・各種書類を揃える</li>
+      <li><strong>移転登録</strong>（名義変更）— ※ 抹消されていない車両のみ</li>
+      <li><strong>輸出抹消登録</strong> — 第3号様式の2 + 第1号様式</li>
+      <li><strong>現在登録事項証明書</strong> — 第3号様式</li>
+      <li><strong>輸出</strong> — Export Certificate 有効期間内に船積</li>
+    </ol>
+    ${caseName
+      ? `現在、案件 <strong>${escapeHtml(caseName)}</strong> の進捗を表示中。チェックボックスを操作すると進捗が保存されます。`
+      : '<em>案件を選択するとチェックリストが対話的になり、各案件の進捗を追跡できます。</em>'}
+  `;
+}
+
+function renderDeregGuideSteps() {
+  const host = document.getElementById('dg-steps');
+  const progressMiniHost = document.getElementById('dg-progress-mini');
+  if (!host) return;
+
+  const caseRow = DG_CURRENT_CASE ? getCase(DG_CURRENT_CASE) : null;
+  const transferNeeded = caseRow ? !!caseRow.dereg_transfer_needed : true; // show optional in general view
+  const stateMap = new Map(
+    DG_CURRENT_CASE ? listDeregChecklist(DG_CURRENT_CASE).map(r => [r.item_key, r]) : []
+  );
+
+  host.innerHTML = DEREG_CHECKLIST.map((g, gIdx) => {
+    const disabled = g.optional && caseRow && !transferNeeded;
+    let groupCompleted = 0;
+    const itemsHtml = g.items.map(it => {
+      const state = stateMap.get(it.key);
+      const isCompleted = !!state?.completed;
+      if (isCompleted) groupCompleted++;
+      const sourceValue = it.source && caseRow ? (caseRow[it.source] || '') : '';
+      const labelClass = isCompleted ? 'dg-item__label--completed' : '';
+      const inputDisabled = !DG_CURRENT_CASE || disabled;
+      return `
+        <div class="dg-item">
+          <input type="checkbox" data-dg-toggle="${escapeHtml(it.key)}"
+            ${isCompleted ? 'checked' : ''} ${inputDisabled ? 'disabled' : ''}
+            ${!DG_CURRENT_CASE ? 'title="案件を選択するとチェックできます"' : ''}>
+          <div>
+            <div class="dg-item__label ${labelClass}">
+              ${escapeHtml(it.label)}
+              ${it.warning ? '<span class="dg-item__warning">必須</span>' : ''}
+            </div>
+            ${it.detail ? `<div class="dg-item__detail">${escapeHtml(it.detail)}</div>` : ''}
+            ${it.note ? `<div class="dg-item__note-pill">📌 ${escapeHtml(it.note)}</div>` : ''}
+            ${it.expectedValue ? `<div class="dg-item__expected-pill">期待値: ${escapeHtml(it.expectedValue)}</div>` : ''}
+            ${it.source ? `<div class="dg-item__source-pill">${escapeHtml(it.source)}: ${escapeHtml(sourceValue) || '（未設定）'}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    const totalInGroup = g.items.length;
+    const progressClass = (groupCompleted === totalInGroup && totalInGroup > 0)
+      ? 'dg-step__progress dg-step__progress--complete'
+      : 'dg-step__progress';
+    const progressText = DG_CURRENT_CASE
+      ? `${groupCompleted}/${totalInGroup}`
+      : `${totalInGroup}項目`;
+    const stepClasses = `dg-step ${g.optional ? 'dg-step--optional' : ''} ${disabled ? 'dg-step--disabled' : ''}`;
+    return `
+      <div class="${stepClasses}">
+        <div class="dg-step__head">
+          <div>
+            <span class="dg-step__num">${gIdx + 1}</span>
+            <span class="dg-step__title">${g.icon || ''} ${escapeHtml(g.group)}</span>
+          </div>
+          <span class="${progressClass}">${progressText}</span>
+        </div>
+        ${g.desc ? `<div class="dg-step__desc">${escapeHtml(g.desc)}</div>` : ''}
+        <div class="dg-step__items">${itemsHtml}</div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire checkbox handlers
+  host.querySelectorAll('[data-dg-toggle]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      if (!DG_CURRENT_CASE) return;
+      await upsertDeregItem(DG_CURRENT_CASE, cb.dataset.dgToggle, { completed: cb.checked });
+      renderDeregGuide();
+      updateEditorTabBadges(DG_CURRENT_CASE);
+    });
+  });
+
+  // Mini progress in the toolbar
+  if (DG_CURRENT_CASE) {
+    const total = deregTotalItems(transferNeeded);
+    const visibleKeys = new Set();
+    for (const g of DEREG_CHECKLIST) {
+      if (g.optional && !transferNeeded) continue;
+      for (const i of g.items) visibleKeys.add(i.key);
+    }
+    const completedCount = [...stateMap.values()]
+      .filter(r => r.completed && visibleKeys.has(r.item_key)).length;
+    const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+    progressMiniHost.innerHTML = `
+      <span style="color:#6b7280">進捗:</span>
+      <strong style="font-size:14px">${completedCount}/${total} (${pct}%)</strong>
+    `;
+  } else {
+    progressMiniHost.innerHTML = `<span style="color:#9ca3af;font-size:12px">案件未選択 — 一般ガイドモード</span>`;
+  }
+}
+
+function renderDeregGuideSidebar() {
+  // Forms list
+  const formsHost = document.getElementById('dg-forms-list');
+  if (formsHost) {
+    const forms = requiredDocumentsList()
+      .filter(it => /様式/.test(it.label) || /証明書/.test(it.label) || /納付書/.test(it.label) || /委任状/.test(it.label));
+    formsHost.innerHTML = forms.map(f => `
+      <li>
+        <div class="dg-form-name">${f.groupIcon || ''} ${escapeHtml(f.label)}</div>
+        <div class="dg-form-group">${escapeHtml(f.group)}</div>
+        ${f.note ? `<div style="font-size:11px;color:#92400e;margin-top:2px">📌 ${escapeHtml(f.note)}</div>` : ''}
+      </li>
+    `).join('');
+  }
+
+  // Field checks
+  const fieldsHost = document.getElementById('dg-fields-list');
+  if (fieldsHost) {
+    const fieldsGroup = DEREG_CHECKLIST.find(g => g.group === '記載項目チェック');
+    fieldsHost.innerHTML = (fieldsGroup?.items || []).map(it => {
+      let valueHtml = '';
+      if (it.expectedValue) {
+        valueHtml = ` → <span class="dg-field-val">${escapeHtml(it.expectedValue)}</span>`;
+      } else if (it.source && DG_CURRENT_CASE) {
+        const c = getCase(DG_CURRENT_CASE);
+        const v = c?.[it.source] || '（未設定）';
+        valueHtml = ` → <span class="dg-field-val">${escapeHtml(v)}</span>`;
+      } else if (it.source) {
+        valueHtml = ` <span style="color:#9ca3af;font-size:11px">(案件選択で表示)</span>`;
+      }
+      return `<li><span class="dg-field-key">${escapeHtml(it.label.split('（')[0])}</span>${valueHtml}</li>`;
+    }).join('');
+  }
+
+  // References
+  const refsHost = document.getElementById('dg-refs-list');
+  if (refsHost) {
+    refsHost.innerHTML = DEREG_REFERENCES.map(r => `
+      <li>
+        <a href="${r.url}" target="_blank" rel="noopener" class="dg-ref-link">${escapeHtml(r.title)} ↗</a>
+        ${r.desc ? `<div class="dg-ref-desc">${escapeHtml(r.desc)}</div>` : ''}
+      </li>
+    `).join('');
+  }
 }
 
 // ============================================================================
