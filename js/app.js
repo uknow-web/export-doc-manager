@@ -14,6 +14,7 @@ import {
   saveCost, deleteCost, listCosts, costsTotal,
   savePhoto, deletePhoto, listPhotos, listPhotosSummary, updatePhotoCaption,
   appendApHolderHistory, listApHolderHistory, resolveApHolderId,
+  listDeregChecklist, getDeregItem, upsertDeregItem,
   logDocIssued, listDocIssueLog,
   getSetting, setSetting, nextSequenceFromPattern,
   query, run,
@@ -47,6 +48,7 @@ import {
 import { getDek } from './db.js';
 import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.js';
 import { VEHICLE_CATEGORIES, categoryLabel, categoryEnLabel, categoryIcon, categoryBadge, normalizeCategory, defaultHsCode } from './categories.js';
+import { DEREG_CHECKLIST, totalItems as deregTotalItems } from './dereg-checklist.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
   deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
@@ -914,6 +916,24 @@ function setupEditor() {
   setupEditorTabs();
   document.getElementById('btn-add-reg-event').addEventListener('click', () => addRegEventRow({}));
 
+  // Transfer-needed checkbox: live-toggle the optional group without
+  // requiring a full case save (case save handler will persist anyway,
+  // but we want immediate visual response).
+  const transferCb = document.getElementById('case-dereg-transfer-needed');
+  if (transferCb) {
+    transferCb.addEventListener('change', () => {
+      const form = document.getElementById('form-case');
+      const id = Number(form.elements.id.value);
+      if (id) {
+        // Reflect to the in-memory form, then re-render with new state
+        run('UPDATE cases SET dereg_transfer_needed=? WHERE id=?',
+            [transferCb.checked ? 1 : 0, id]);
+        persist();
+        renderDeregChecklist(id);
+      }
+    });
+  }
+
   // Populate status selectors
   const progSel = document.getElementById('case-progress-status');
   progSel.innerHTML = PROGRESS_STATUSES
@@ -1128,6 +1148,7 @@ function openCaseEditor(id) {
     renderPaymentsTable(id);
     renderCostsTable(id);
     renderPhotoAlbum(id, document.getElementById('editor-photo-album'), { editable: true });
+    renderDeregChecklist(id);
     // Suggest progress status based on issued docs (non-destructive hint)
     const suggested = suggestProgressFromDocs(issued, c.progress_status);
     if (suggested && suggested !== c.progress_status) {
@@ -1165,6 +1186,7 @@ function openCaseEditor(id) {
     // Photo album for new case: empty placeholder, only usable after save
     const photoHost = document.getElementById('editor-photo-album');
     if (photoHost) photoHost.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:12px">案件を保存すると写真をアップロードできます。</div>';
+    renderDeregChecklist(null);
   }
 }
 
@@ -2394,6 +2416,34 @@ function renderDetailView(caseId) {
         <div class="doc-status-grid" id="detail-doc-status"></div>
       </div>
 
+      <!-- Dereg checklist progress -->
+      ${(() => {
+        const stateRows = listDeregChecklist(c.id);
+        if (!stateRows.length && !c.dereg_transfer_needed) return '';
+        const transferNeeded = !!c.dereg_transfer_needed;
+        const visibleKeys = new Set();
+        for (const g of DEREG_CHECKLIST) {
+          if (g.optional && !transferNeeded) continue;
+          for (const i of g.items) visibleKeys.add(i.key);
+        }
+        const total = deregTotalItems(transferNeeded);
+        const completed = stateRows.filter(r => r.completed && visibleKeys.has(r.item_key)).length;
+        const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+        if (!completed && !transferNeeded) return '';
+        return `
+        <div class="detail-card">
+          <div class="detail-card__head">
+            <h4>📋 輸出抹消手続き</h4>
+            <span class="detail-card__head__action">${completed}/${total} (${pct}%)</span>
+          </div>
+          <div class="pay-progress" style="margin-top:4px">
+            <div class="pay-progress__fill" style="width:${pct}%"></div>
+            <div class="pay-progress__label">${pct}%</div>
+          </div>
+          ${transferNeeded ? '<div style="font-size:11px;color:#92400e;margin-top:6px">📌 名義変更が必要な案件</div>' : ''}
+        </div>`;
+      })()}
+
       <!-- Registration history -->
       ${events.length ? `
       <div class="detail-card">
@@ -3552,6 +3602,102 @@ async function decryptBytes(encBytes, password) {
 }
 
 // ============================================================================
+// 輸出抹消手続きチェックリスト (Dereg checklist) — case editor tab
+// ============================================================================
+
+function renderDeregChecklist(caseId) {
+  const host = document.getElementById('dereg-checklist-host');
+  const progressHost = document.getElementById('dereg-progress');
+  if (!host) return;
+  if (!caseId) {
+    host.innerHTML = '<div class="muted">案件を保存するとチェックリストが使えます。</div>';
+    progressHost.innerHTML = '';
+    return;
+  }
+
+  const caseRow = getCase(caseId);
+  const transferNeeded = !!caseRow?.dereg_transfer_needed;
+  document.getElementById('case-dereg-transfer-needed').checked = transferNeeded;
+
+  // Load state for this case
+  const stateRows = listDeregChecklist(caseId);
+  const stateMap = new Map(stateRows.map(r => [r.item_key, r]));
+
+  // Render groups
+  host.innerHTML = DEREG_CHECKLIST.map(g => {
+    const disabled = g.optional && !transferNeeded;
+    let groupCompleted = 0;
+    const itemsHtml = g.items.map(it => {
+      const state = stateMap.get(it.key);
+      const isCompleted = !!state?.completed;
+      if (isCompleted) groupCompleted++;
+      const sourceValue = it.source ? (caseRow?.[it.source] || '') : '';
+      const labelClass = isCompleted ? 'dereg-item__label--completed' : '';
+      return `
+        <div class="dereg-item">
+          <input type="checkbox" data-dereg-toggle="${escapeHtml(it.key)}"
+            ${isCompleted ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
+          <div class="dereg-item__main">
+            <div class="dereg-item__label ${labelClass}">
+              ${escapeHtml(it.label)}
+              ${it.warning ? '<span class="dereg-item__warning">必須</span>' : ''}
+            </div>
+            ${it.note ? `<div class="dereg-item__hint">📌 ${escapeHtml(it.note)}</div>` : ''}
+            ${it.expectedValue ? `<div class="dereg-item__expected">期待値: ${escapeHtml(it.expectedValue)}</div>` : ''}
+            ${it.source ? `<div class="dereg-item__source">${escapeHtml(it.source)}: ${escapeHtml(sourceValue) || '（未設定）'}</div>` : ''}
+          </div>
+          <input type="text" class="dereg-item__note"
+            placeholder="メモ" value="${escapeHtml(state?.note || '')}"
+            data-dereg-note="${escapeHtml(it.key)}" ${disabled ? 'disabled' : ''}>
+        </div>
+      `;
+    }).join('');
+    const groupClass = `dereg-group ${g.optional ? 'dereg-group--optional' : ''} ${disabled ? 'dereg-group--disabled' : ''}`;
+    return `
+      <div class="${groupClass}">
+        <div class="dereg-group__head">
+          <span>${g.icon || ''} ${escapeHtml(g.group)}</span>
+          <span class="dereg-group__head__progress">${groupCompleted} / ${g.items.length}</span>
+        </div>
+        ${g.note ? `<div class="dereg-group__note">${escapeHtml(g.note)}</div>` : ''}
+        ${itemsHtml}
+      </div>
+    `;
+  }).join('');
+
+  // Wire up checkbox handlers
+  host.querySelectorAll('[data-dereg-toggle]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      await upsertDeregItem(caseId, cb.dataset.deregToggle, { completed: cb.checked });
+      renderDeregChecklist(caseId);
+      updateEditorTabBadges(caseId);
+    });
+  });
+  host.querySelectorAll('[data-dereg-note]').forEach(inp => {
+    inp.addEventListener('change', async () => {
+      await upsertDeregItem(caseId, inp.dataset.deregNote, { note: inp.value });
+    });
+  });
+
+  // Update progress summary
+  const total = deregTotalItems(transferNeeded);
+  const visibleKeys = new Set();
+  for (const g of DEREG_CHECKLIST) {
+    if (g.optional && !transferNeeded) continue;
+    for (const i of g.items) visibleKeys.add(i.key);
+  }
+  const completedCount = stateRows.filter(r => r.completed && visibleKeys.has(r.item_key)).length;
+  const pct = total > 0 ? Math.round((completedCount / total) * 100) : 0;
+  progressHost.innerHTML = `
+    <div class="stat-row__item" style="flex:1">
+      <div style="font-size:12px;color:#6b7280;margin-bottom:4px">進捗</div>
+      <div class="dereg-summary">${completedCount} / ${total} (${pct}%)</div>
+      <div class="dereg-progress-bar"><div class="dereg-progress-fill" style="width:${pct}%"></div></div>
+    </div>
+  `;
+}
+
+// ============================================================================
 // Buyer Portal (preview mockup — admin view of what Buyers will see)
 // ============================================================================
 
@@ -4582,27 +4728,42 @@ function resetEditorTabs() {
 // Render small count badges on tabs to indicate how many rows each collection
 // has. Call after loading a case.
 function updateEditorTabBadges(caseId) {
-  const setCount = (tabKey, count) => {
+  const setBadge = (tabKey, text) => {
     const tab = document.querySelector(`.editor-tab[data-editor-tab="${tabKey}"]`);
     if (!tab) return;
     tab.querySelector('.editor-tab__count')?.remove();
-    if (count > 0) {
+    if (text) {
       const span = document.createElement('span');
       span.className = 'editor-tab__count';
-      span.textContent = count;
+      span.textContent = text;
       tab.appendChild(span);
     }
   };
+  const setCount = (tabKey, count) => setBadge(tabKey, count > 0 ? String(count) : '');
+
   if (caseId) {
     setCount('reg-events', listCaseEvents(caseId).length);
     setCount('payments',   listPayments(caseId).length);
     setCount('costs',      listCosts(caseId).length);
     setCount('photos',     listPhotos(caseId).length);
+    // Dereg checklist progress badge "X/Y"
+    const c = getCase(caseId);
+    const transferNeeded = !!c?.dereg_transfer_needed;
+    const total = deregTotalItems(transferNeeded);
+    const visibleKeys = new Set();
+    for (const g of DEREG_CHECKLIST) {
+      if (g.optional && !transferNeeded) continue;
+      for (const i of g.items) visibleKeys.add(i.key);
+    }
+    const completedCount = listDeregChecklist(caseId)
+      .filter(r => r.completed && visibleKeys.has(r.item_key)).length;
+    setBadge('dereg', completedCount > 0 ? `${completedCount}/${total}` : '');
   } else {
     setCount('reg-events', 0);
     setCount('payments',   0);
     setCount('costs',      0);
     setCount('photos',     0);
+    setBadge('dereg', '');
   }
 }
 

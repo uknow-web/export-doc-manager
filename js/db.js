@@ -224,6 +224,9 @@ CREATE TABLE IF NOT EXISTS cases (
   /* --- AP Holder (case-level default; per-document override below) --- */
   ap_holder_id              INTEGER,
 
+  /* --- 輸出抹消手続きチェックリスト state --- */
+  dereg_transfer_needed     INTEGER DEFAULT 0,
+
   created_at         TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (seller_id)        REFERENCES parties(id),
   FOREIGN KEY (vehicle_model_id) REFERENCES vehicle_models(id),
@@ -349,6 +352,18 @@ CREATE TABLE IF NOT EXISTS case_documents (
   FOREIGN KEY (buyer_id)     REFERENCES parties(id),
   FOREIGN KEY (ap_holder_id) REFERENCES parties(id)
 );
+
+CREATE TABLE IF NOT EXISTS case_dereg_checklist (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id       INTEGER NOT NULL,
+  item_key      TEXT NOT NULL,
+  completed     INTEGER DEFAULT 0,
+  completed_at  TEXT,
+  note          TEXT,
+  UNIQUE (case_id, item_key),
+  FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_dereg_case ON case_dereg_checklist(case_id);
 
 CREATE TABLE IF NOT EXISTS ap_holder_history (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -476,6 +491,7 @@ function migrate() {
     ['primary_buyer_id','INTEGER'],
     ['vehicle_category',"TEXT DEFAULT 'car'"],
     ['ap_holder_id','INTEGER'],
+    ['dereg_transfer_needed','INTEGER DEFAULT 0'],
   ];
   for (const [c, d] of newCaseCols) addColumnIfMissing('cases', c, d);
 
@@ -692,7 +708,7 @@ const CASE_FIELDS = [
   'spec_no','classification_no','owner_code',
   'fuel_classification_spec','engine_model','maker_code','issuer_title',
   'progress_status','payment_status','status_note','status_updated_at',
-  'tags','is_favorite','vehicle_category','ap_holder_id',
+  'tags','is_favorite','vehicle_category','ap_holder_id','dereg_transfer_needed',
 ];
 
 export async function saveCase(data) {
@@ -827,6 +843,52 @@ export function casesSummary(filters = {}) {
 
 export function getCase(id) {
   return queryOne('SELECT * FROM cases WHERE id=?', [id]);
+}
+
+// ---- 輸出抹消手続きチェックリスト -----------------------------------------
+export function listDeregChecklist(case_id) {
+  return query('SELECT * FROM case_dereg_checklist WHERE case_id=? ORDER BY item_key', [case_id]);
+}
+
+export function getDeregItem(case_id, item_key) {
+  return queryOne(
+    'SELECT * FROM case_dereg_checklist WHERE case_id=? AND item_key=?',
+    [case_id, item_key]
+  );
+}
+
+export async function upsertDeregItem(case_id, item_key, { completed = null, note = null } = {}) {
+  const existing = getDeregItem(case_id, item_key);
+  if (existing) {
+    const patches = [];
+    const params = [];
+    if (completed !== null) {
+      patches.push('completed=?', 'completed_at=?');
+      params.push(completed ? 1 : 0, completed ? new Date().toISOString() : null);
+    }
+    if (note !== null) { patches.push('note=?'); params.push(note); }
+    if (patches.length) {
+      // Above pushed pairs; need to convert to comma-separated SET clauses
+      const setClauses = [];
+      if (completed !== null) setClauses.push('completed=?', 'completed_at=?');
+      if (note !== null) setClauses.push('note=?');
+      run(`UPDATE case_dereg_checklist SET ${setClauses.join(', ')} WHERE id=?`,
+          [...params, existing.id]);
+    }
+  } else {
+    run(
+      `INSERT INTO case_dereg_checklist (case_id, item_key, completed, completed_at, note)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        case_id,
+        item_key,
+        completed === true || completed === 1 ? 1 : 0,
+        completed === true || completed === 1 ? new Date().toISOString() : null,
+        note,
+      ]
+    );
+  }
+  await persist();
 }
 
 // ---- AP Holder history (audit trail of who held the AP) -----------------

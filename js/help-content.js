@@ -376,6 +376,85 @@ HSコードは案件側で個別設定できますが、参考として:</p>
     `,
   },
   {
+    id: 'dereg-checklist',
+    title: '輸出抹消手続きチェックリスト',
+    content: `
+<h1>輸出抹消手続きチェックリスト</h1>
+<p>中古車購入後に国土交通省で行う輸出抹消の作業手順と必要書類のチェックリスト。案件編集画面の「輸出抹消手続き」タブで使用します。</p>
+
+<h2>含まれるグループ</h2>
+<ol>
+  <li><strong>📋 事前準備</strong>
+    <ul>
+      <li>住所コードの取得</li>
+      <li>書類作成</li>
+      <li>印紙購入</li>
+      <li>ナンバープレート返還</li>
+    </ul>
+  </li>
+  <li><strong>🚢 輸出手続き</strong>
+    <ul>
+      <li>輸出抹消仮登録</li>
+      <li>現在登録事項証明書</li>
+    </ul>
+  </li>
+  <li><strong>📝 移転登録（名義変更）</strong> ※「抹消されていない車両」チェック時のみ表示
+    <ul>
+      <li>印鑑証明書（原本必須・当人）</li>
+      <li>印鑑証明書（原本必須・旧所有者）</li>
+      <li>委任状（旧所有者からもらう）</li>
+      <li>手数料納付書</li>
+    </ul>
+  </li>
+  <li><strong>📄 輸出抹消登録</strong>
+    <ul>
+      <li>第3号様式の2（輸出予定日を申請から30日以内）</li>
+      <li>第1号様式</li>
+    </ul>
+  </li>
+  <li><strong>📑 現在登録事項証明書</strong>
+    <ul>
+      <li>第3号様式</li>
+    </ul>
+  </li>
+  <li><strong>✏️ 記載項目チェック</strong>
+    <ul>
+      <li>業務種別: 9（輸出抹消仮登録）</li>
+      <li>抹消: 3</li>
+      <li>業務種別: 3（移転登録）</li>
+      <li>自動車登録番号（案件の registration_no から自動表示）</li>
+      <li>車台番号（案件の chassis_no から自動表示）</li>
+      <li>所有者欄</li>
+      <li>申請人</li>
+    </ul>
+  </li>
+</ol>
+
+<h2>使い方</h2>
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>案件編集画面 → 「輸出抹消手続き」タブ</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>抹消されていない車両（中古車購入直後等）の場合、上部のチェックボックスをON → 名義変更グループが活性化</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>各項目を作業完了の都度チェック。横にメモ欄もあり</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">4</div>
+  <div class="help-step__body"><p>タブ名横とタブ内に進捗バー（X/Y 件 / N%）が表示される</p></div>
+</div>
+
+<h2>案件詳細ビューでの確認</h2>
+<p>案件詳細を開くと、進捗が「📋 輸出抹消手続き」カードで表示されます（チェック開始済み・または抹消が必要な車両のみ）。</p>
+
+<blockquote>💡 案件の <code>registration_no</code> や <code>chassis_no</code> は記載項目チェックに自動表示されます。これらは「Export Certificate / Preserved Record 情報」タブで先に入力しておくと便利です。</blockquote>
+    `,
+  },
+  {
     id: 'editor',
     title: '案件編集画面（9タブ）',
     content: `

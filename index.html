@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=27">
-<link rel="stylesheet" href="css/documents.css?v=27">
+<link rel="stylesheet" href="css/app.css?v=28">
+<link rel="stylesheet" href="css/documents.css?v=28">
 </head>
 <body>
 
@@ -440,6 +440,7 @@
         <button type="button" class="editor-tab" data-editor-tab="shipment">船積条件</button>
         <button type="button" class="editor-tab" data-editor-tab="si-info">Shipping Instruction 情報</button>
         <button type="button" class="editor-tab" data-editor-tab="export-cert">Export Certificate / Preserved Record 情報</button>
+        <button type="button" class="editor-tab" data-editor-tab="dereg">輸出抹消手続き</button>
         <button type="button" class="editor-tab" data-editor-tab="reg-events">登録履歴</button>
         <button type="button" class="editor-tab" data-editor-tab="payments">入金明細</button>
         <button type="button" class="editor-tab" data-editor-tab="costs">原価明細</button>
@@ -634,6 +635,19 @@
       </div>
 
       </div><!-- /editor-pane export-cert -->
+
+      <div class="editor-pane" data-editor-pane="dereg">
+      <h2>輸出抹消手続きチェックリスト</h2>
+      <p class="hint">中古車購入後、国土交通省で行う輸出抹消の作業手順と必要書類のチェックリストです（車の場合）。</p>
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" name="dereg_transfer_needed" id="case-dereg-transfer-needed" style="width:auto">
+          <span>📌 抹消されていない車両（中古車購入直後など）— 移転登録（名義変更）が必要</span>
+        </label>
+      </div>
+      <div id="dereg-progress" class="stat-row" style="margin:8px 0"></div>
+      <div id="dereg-checklist-host"></div>
+      </div><!-- /editor-pane dereg -->
 
       <div class="editor-pane" data-editor-pane="reg-events">
       <h2>登録履歴（Preserved Record 用イベント）</h2>

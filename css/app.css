@@ -1893,6 +1893,129 @@ tr.row-favorite:hover { background: #fef3c7; }
   .ap-car__body { grid-template-columns: 1fr; }
 }
 
+/* ========== 輸出抹消手続きチェックリスト ========== */
+.dereg-group {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.dereg-group--optional { background: #fffbeb; border-color: #fde68a; }
+.dereg-group--optional.dereg-group--disabled { opacity: .45; }
+
+.dereg-group__head {
+  padding: 10px 14px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 13px;
+  color: #1f2937;
+}
+.dereg-group--optional .dereg-group__head {
+  background: #fef3c7;
+  border-bottom-color: #fde68a;
+  color: #92400e;
+}
+.dereg-group__head__progress {
+  font-size: 11px;
+  color: #6b7280;
+  font-weight: 500;
+}
+.dereg-group__note {
+  padding: 6px 14px;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 11.5px;
+  color: #6b7280;
+}
+
+.dereg-item {
+  display: grid;
+  grid-template-columns: 24px 1fr 160px;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px dashed #f3f4f6;
+  align-items: start;
+}
+.dereg-item:last-child { border-bottom: none; }
+.dereg-item input[type="checkbox"] { width: 18px; height: 18px; margin: 2px 0; cursor: pointer; }
+.dereg-item__main { display: flex; flex-direction: column; gap: 3px; }
+.dereg-item__label {
+  font-size: 13px;
+  color: #1f2937;
+  font-weight: 500;
+}
+.dereg-item__label--completed {
+  color: #9ca3af;
+  text-decoration: line-through;
+}
+.dereg-item__warning {
+  color: #dc2626;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+.dereg-item__hint {
+  font-size: 11px;
+  color: #6b7280;
+}
+.dereg-item__source {
+  font-size: 11px;
+  color: #2563eb;
+  font-family: "SF Mono", Menlo, monospace;
+  background: #eff6ff;
+  padding: 1px 6px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-top: 2px;
+}
+.dereg-item__expected {
+  font-size: 10.5px;
+  color: #92400e;
+  font-family: "SF Mono", Menlo, monospace;
+  background: #fef3c7;
+  padding: 1px 6px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-top: 2px;
+}
+.dereg-item__note {
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  background: #f9fafb;
+  width: 100%;
+  font-family: inherit;
+}
+.dereg-item__note:focus {
+  background: #fff;
+  border-color: #2563eb;
+  outline: none;
+}
+
+.dereg-summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+}
+.dereg-progress-bar {
+  height: 10px;
+  background: #f3f4f6;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.dereg-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #059669);
+  transition: width .3s;
+}
+
 /* ========== Authentication overlay ========== */
 .auth-overlay {
   position: fixed;
