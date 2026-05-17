@@ -125,6 +125,7 @@ const DOC_TYPES = [
   setupCategoryTabs();
   setupDeregGuide();
   setupFormSampleModal();
+  setupPortalDocPreview();
   renderCases();
   renderParties();
   renderVehicleModels();
@@ -4399,6 +4400,86 @@ function buildForm3_2(c, seller) {
 }
 
 // ============================================================================
+// Portal document preview — Buyer / AP Holder document viewer with print
+// ============================================================================
+
+let PORTAL_DOC_CONTEXT = null; // { caseId, docType }
+
+function setupPortalDocPreview() {
+  document.querySelectorAll('[data-portal-doc-close]').forEach(el => {
+    el.addEventListener('click', () => {
+      document.getElementById('portal-doc-modal').classList.add('hidden');
+      PORTAL_DOC_CONTEXT = null;
+    });
+  });
+  document.getElementById('btn-portal-doc-print').addEventListener('click', () => {
+    if (!PORTAL_DOC_CONTEXT) return;
+    const sheet = document.querySelector('#portal-doc-body .doc-sheet');
+    if (!sheet) {
+      toast('印刷可能な書類が表示されていません', 'error');
+      return;
+    }
+    // Set @page orientation based on doc class (EC/PR are landscape)
+    const isLandscape = sheet.classList.contains('doc-sheet--ec')
+                     || sheet.classList.contains('doc-sheet--pr');
+    let styleTag = document.getElementById('print-page-style');
+    if (!styleTag) {
+      styleTag = document.createElement('style');
+      styleTag.id = 'print-page-style';
+      document.head.appendChild(styleTag);
+    }
+    styleTag.textContent = `@media print { @page { size: A4 ${isLandscape ? 'landscape' : 'portrait'}; margin: 0; } }`;
+    document.body.classList.add('printing-portal-doc');
+    // Best-effort audit
+    logDocIssued(PORTAL_DOC_CONTEXT.caseId, PORTAL_DOC_CONTEXT.docType, 'portal_view');
+    window.print();
+    setTimeout(() => document.body.classList.remove('printing-portal-doc'), 300);
+  });
+}
+
+/**
+ * Open the portal document preview modal for a given case + doc type.
+ * Renders the document using the same renderers as the admin preview.
+ */
+function openPortalDocPreview(caseId, docType) {
+  PORTAL_DOC_CONTEXT = { caseId, docType };
+  const modal = document.getElementById('portal-doc-modal');
+  const body = document.getElementById('portal-doc-body');
+  const empty = document.getElementById('portal-doc-empty');
+  body.innerHTML = '';
+  empty.classList.add('hidden');
+
+  const docMeta = DOC_TYPES.find(t => t.key === docType);
+  const caseRow = getCase(caseId);
+  document.getElementById('portal-doc-title').textContent =
+    `${docMeta?.label || docType} — ${caseRow?.case_code || '#' + caseId}`;
+
+  // Render using the existing renderers
+  const node = buildDocNode(caseId, docType);
+  if (!node) {
+    body.classList.add('hidden');
+    empty.classList.remove('hidden');
+  } else {
+    body.classList.remove('hidden');
+    body.appendChild(node);
+    // Scale to fit the modal width (portrait sheets are 210mm ≈ 794px)
+    const targetWidth = body.clientWidth - 40; // padding allowance
+    const sheetEl = body.querySelector('.doc-sheet');
+    if (sheetEl) {
+      const isLandscape = sheetEl.classList.contains('doc-sheet--ec')
+                       || sheetEl.classList.contains('doc-sheet--pr');
+      const baseWidth = isLandscape ? 1122 : 794; // 297mm vs 210mm
+      const scale = Math.min(1, targetWidth / baseWidth);
+      sheetEl.style.transform = `scale(${scale})`;
+      sheetEl.style.transformOrigin = 'top left';
+      sheetEl.style.marginBottom = `${(scale - 1) * sheetEl.offsetHeight}px`;
+    }
+  }
+
+  modal.classList.remove('hidden');
+}
+
+// ============================================================================
 // Buyer Portal (preview mockup — admin view of what Buyers will see)
 // ============================================================================
 
@@ -4587,6 +4668,13 @@ function renderBuyerPortal(buyerId) {
       openBuyerLightbox(allPhotos[0].data_url, `${allPhotos.length}枚の写真`);
     });
   });
+  // Wire up document preview links
+  host.querySelectorAll('[data-portal-doc-case]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      openPortalDocPreview(Number(el.dataset.portalDocCase), el.dataset.portalDocType);
+    });
+  });
 }
 
 function renderBuyerCarCard(c, today) {
@@ -4731,14 +4819,21 @@ function renderBuyerCarCard(c, today) {
             ` : ''}
           </div>
 
-          <!-- Documents (mockup — real links will be added when portal goes live) -->
+          <!-- Documents — clickable to open preview/print modal -->
           <div>
             <div style="font-size:11px;color:#64748b;margin-bottom:6px">Documents</div>
             <div class="bp-docs">
               ${DOC_TYPES.filter(t => t.implemented).map(t => {
                 const doc = getCaseDoc(c.id, t.key);
-                const enabled = !!doc?.buyer_id;
-                return `<a class="bp-doc-link ${enabled ? '' : 'bp-doc-link--disabled'}" title="${enabled ? 'Download PDF' : 'Not issued yet'}">📄 ${escapeHtml(t.label)}</a>`;
+                // For Buyer-facing portal, viewable when buyer_id is set on
+                // the doc OR the case has a primary_buyer_id fallback.
+                const buyerSet = !!doc?.buyer_id || !!c.primary_buyer_id;
+                // Export Cert / Preserved Record don't require buyer_id
+                const noBuyerNeeded = ['export_certificate', 'preserved_record'].includes(t.key);
+                const enabled = buyerSet || noBuyerNeeded;
+                return `<a class="bp-doc-link ${enabled ? 'bp-doc-link--enabled' : 'bp-doc-link--disabled'}"
+                  ${enabled ? `data-portal-doc-case="${c.id}" data-portal-doc-type="${t.key}"` : ''}
+                  title="${enabled ? 'View PDF / Print' : 'Not issued yet'}">📄 ${escapeHtml(t.label)}</a>`;
               }).join('')}
             </div>
           </div>
@@ -4925,6 +5020,12 @@ function renderApPortal(apHolderId) {
       if (photo) openBuyerLightbox(photo.data_url, photo.caption || '');
     });
   });
+  // Document preview pills
+  host.querySelectorAll('[data-portal-doc-case]').forEach(el => {
+    el.addEventListener('click', () => {
+      openPortalDocPreview(Number(el.dataset.portalDocCase), el.dataset.portalDocType);
+    });
+  });
 }
 
 function renderApCarCard({ case: c, current, historical }, today, isCurrent) {
@@ -5080,11 +5181,17 @@ function renderApCarCard({ case: c, current, historical }, today, isCurrent) {
           <div class="ap-section">
             <div class="ap-section__title">📄 Document Status</div>
             <div class="ap-doc-status">
-              ${docStatus.map(d => `
-                <span class="ap-doc-pill ${d.issued ? 'ap-doc-pill--issued' : ''}">
+              ${docStatus.map(d => {
+                // Resolve viewability — same logic as Buyer portal
+                const doc = getCaseDoc(c.id, d.key);
+                const buyerSet = !!doc?.buyer_id || !!c.primary_buyer_id;
+                const noBuyerNeeded = ['export_certificate', 'preserved_record'].includes(d.key);
+                const viewable = buyerSet || noBuyerNeeded;
+                return `<span class="ap-doc-pill ${d.issued ? 'ap-doc-pill--issued' : ''} ${viewable ? 'ap-doc-pill--clickable' : ''}"
+                  ${viewable ? `data-portal-doc-case="${c.id}" data-portal-doc-type="${d.key}" title="クリックでプレビュー"` : ''}>
                   ${d.issued ? '✓' : '○'} ${escapeHtml(d.label)}
-                </span>
-              `).join('')}
+                </span>`;
+              }).join('')}
             </div>
           </div>
 

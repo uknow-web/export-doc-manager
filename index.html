@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=30">
-<link rel="stylesheet" href="css/documents.css?v=30">
+<link rel="stylesheet" href="css/app.css?v=31">
+<link rel="stylesheet" href="css/documents.css?v=31">
 </head>
 <body>
 
@@ -1246,6 +1246,25 @@
     <div class="modal__foot">
       <button type="button" class="btn btn--ghost" data-crypto-close>キャンセル</button>
       <button type="button" class="btn btn--primary" id="btn-crypto-ok">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Portal document preview modal (Buyer / AP Holder side) -->
+<div id="portal-doc-modal" class="modal hidden">
+  <div class="modal__backdrop" data-portal-doc-close></div>
+  <div class="modal__panel portal-doc-modal">
+    <div class="modal__head">
+      <h3 id="portal-doc-title">書類プレビュー</h3>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button type="button" class="btn btn--primary" id="btn-portal-doc-print">🖨 印刷 / PDF</button>
+        <button type="button" class="modal__close" data-portal-doc-close>×</button>
+      </div>
+    </div>
+    <div class="portal-doc-body" id="portal-doc-body"></div>
+    <div id="portal-doc-empty" class="portal-doc-empty hidden">
+      📄 この書類はまだ発行準備が整っていません。<br>
+      <span style="font-size:11px;color:#9ca3af">管理者にお問い合わせください</span>
     </div>
   </div>
 </div>

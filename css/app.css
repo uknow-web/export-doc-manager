@@ -2536,6 +2536,78 @@ tr.row-favorite:hover { background: #fef3c7; }
 .archive-file__meta { font-size: 10px; color: #9ca3af; }
 .archive-file__actions { display: flex; gap: 4px; }
 
+/* ========== Portal document preview modal ========== */
+.portal-doc-modal {
+  width: min(900px, 96vw);
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.portal-doc-body {
+  overflow: auto;
+  background: #e5e7eb;
+  padding: 20px;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.portal-doc-body .doc-sheet {
+  /* Scale down printed sheets to fit the preview width */
+  transform-origin: top center;
+}
+.portal-doc-empty {
+  padding: 60px 20px;
+  text-align: center;
+  color: #6b7280;
+  font-size: 14px;
+  background: #f9fafb;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Clickable doc links/pills in portals */
+.bp-doc-link--enabled {
+  cursor: pointer;
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #1e40af;
+}
+.bp-doc-link--enabled:hover {
+  background: #dbeafe;
+  border-color: #2563eb;
+}
+.ap-doc-pill--clickable {
+  cursor: pointer;
+  text-decoration: underline;
+}
+.ap-doc-pill--clickable:hover {
+  background: #bbf7d0;
+}
+
+/* When printing from inside the modal, hide the modal chrome */
+@media print {
+  body.printing-portal-doc > *:not(#portal-doc-modal) { display: none !important; }
+  body.printing-portal-doc .modal__backdrop,
+  body.printing-portal-doc .modal__head,
+  body.printing-portal-doc #portal-doc-empty { display: none !important; }
+  body.printing-portal-doc .modal__panel {
+    width: auto !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+  body.printing-portal-doc .portal-doc-body {
+    background: #fff !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  body.printing-portal-doc .doc-sheet { box-shadow: none !important; }
+}
+
 /* ========== Authentication overlay ========== */
 .auth-overlay {
   position: fixed;

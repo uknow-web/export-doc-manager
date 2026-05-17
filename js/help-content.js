@@ -1312,6 +1312,63 @@ HSコードは案件側で個別設定できますが、参考として:</p>
   },
 
   {
+    id: 'portal-document-viewer',
+    title: 'ポータルからの書類閲覧（Buyer / AP Holder）',
+    content: `
+<h1>ポータルからの書類閲覧</h1>
+<p>Buyerポータル / AP Holderポータルから、各案件に登録された書類（Invoice 等）を直接プレビュー・印刷できるようになりました。</p>
+
+<h2>使い方</h2>
+
+<h3>Buyerポータル</h3>
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>「Buyerポータル」タブで対象Buyerを選択</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>各車両カード下部の「Documents」セクションに5つの書類タイプが青いリンクで表示</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>📄 Invoice 等をクリック → プレビューモーダルが開く</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">4</div>
+  <div class="help-step__body"><p>「🖨 印刷 / PDF」ボタン → ブラウザ印刷ダイアログ → PDF保存可能</p></div>
+</div>
+
+<h3>AP Holderポータル</h3>
+<p>「Document Status」セクションの書類ピル（✓ Invoice 等）が下線付きで表示され、クリックで同じプレビューモーダルが開きます。</p>
+
+<h2>閲覧条件（自動判定）</h2>
+<table>
+  <tr><th>書類</th><th>閲覧可能になる条件</th></tr>
+  <tr><td>Sales Confirmation</td><td>書類ごとのBuyer or 案件の主取引Buyer が設定済み</td></tr>
+  <tr><td>Invoice</td><td>同上</td></tr>
+  <tr><td>Shipping Instruction</td><td>同上</td></tr>
+  <tr><td>Export Certificate</td><td>Buyer設定不要（常に表示可）</td></tr>
+  <tr><td>Preserved Record</td><td>Buyer設定不要（常に表示可）</td></tr>
+</table>
+<p>条件を満たさない書類は灰色（無効状態）で表示されます。</p>
+
+<h2>監査ログ</h2>
+<p>ポータルから書類を印刷すると、監査ログに「<code>portal_view</code>」アクションとして記録されます。誰が・いつ・どの書類を閲覧したか追跡できます。</p>
+
+<h2>用紙向きの自動判定</h2>
+<ul>
+  <li>📄 Sales Confirmation / Invoice / Shipping Instruction → A4 縦</li>
+  <li>📑 Export Certificate / Preserved Record → A4 横</li>
+</ul>
+<p>「印刷 / PDF」ボタンを押すと自動的に適切な向きで印刷されます。</p>
+
+<h2>本実装時（実Buyer/APログイン）への移行</h2>
+<p>現在は管理者プレビューモードで動作しています。実Buyer/APログインを実装する際は、認証セッションを確認してから自分の案件に紐付く書類のみ表示するよう絞り込めば、そのまま使えます。</p>
+
+<blockquote>💡 これでポータルから直接 Invoice/SCをPDF化できるため、メール添付の手間が大幅に削減されます。</blockquote>
+    `,
+  },
+  {
     id: 'buyer-portal-preview',
     title: 'Buyerマイページ（プレビュー）',
     content: `
