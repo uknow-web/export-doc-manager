@@ -15,6 +15,7 @@ import {
   savePhoto, deletePhoto, listPhotos, listPhotosSummary, updatePhotoCaption,
   appendApHolderHistory, listApHolderHistory, resolveApHolderId,
   listDeregChecklist, getDeregItem, upsertDeregItem,
+  addArchiveDocument, deleteArchiveDocument, listArchiveDocuments, getArchiveDocument,
   logDocIssued, listDocIssueLog,
   getSetting, setSetting, nextSequenceFromPattern,
   query, run,
@@ -48,7 +49,7 @@ import {
 import { getDek } from './db.js';
 import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.js';
 import { VEHICLE_CATEGORIES, categoryLabel, categoryEnLabel, categoryIcon, categoryBadge, normalizeCategory, defaultHsCode } from './categories.js';
-import { DEREG_CHECKLIST, totalItems as deregTotalItems, requiredDocumentsList, DEREG_REFERENCES } from './dereg-checklist.js';
+import { DEREG_CHECKLIST, totalItems as deregTotalItems, requiredDocumentsList, DEREG_REFERENCES, FORM_TEMPLATES, SAMPLE_PDF_PATH, GYOMU_CODES, MASSYO_CODES } from './dereg-checklist.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
   deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
@@ -123,6 +124,7 @@ const DOC_TYPES = [
   setupApPortal();
   setupCategoryTabs();
   setupDeregGuide();
+  setupFormSampleModal();
   renderCases();
   renderParties();
   renderVehicleModels();
@@ -1151,6 +1153,7 @@ function openCaseEditor(id) {
     renderCostsTable(id);
     renderPhotoAlbum(id, document.getElementById('editor-photo-album'), { editable: true });
     renderDeregChecklist(id);
+    renderDocArchive(id);
     // Suggest progress status based on issued docs (non-destructive hint)
     const suggested = suggestProgressFromDocs(issued, c.progress_status);
     if (suggested && suggested !== c.progress_status) {
@@ -1189,6 +1192,7 @@ function openCaseEditor(id) {
     const photoHost = document.getElementById('editor-photo-album');
     if (photoHost) photoHost.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:12px">案件を保存すると写真をアップロードできます。</div>';
     renderDeregChecklist(null);
+    renderDocArchive(null);
   }
 }
 
@@ -3873,18 +3877,35 @@ function renderDeregGuideSteps() {
 }
 
 function renderDeregGuideSidebar() {
-  // Forms list
+  // Forms list — now uses the FORM_TEMPLATES with click-to-preview
   const formsHost = document.getElementById('dg-forms-list');
   if (formsHost) {
-    const forms = requiredDocumentsList()
-      .filter(it => /様式/.test(it.label) || /証明書/.test(it.label) || /納付書/.test(it.label) || /委任状/.test(it.label));
-    formsHost.innerHTML = forms.map(f => `
-      <li>
-        <div class="dg-form-name">${f.groupIcon || ''} ${escapeHtml(f.label)}</div>
-        <div class="dg-form-group">${escapeHtml(f.group)}</div>
-        ${f.note ? `<div style="font-size:11px;color:#92400e;margin-top:2px">📌 ${escapeHtml(f.note)}</div>` : ''}
+    formsHost.innerHTML = FORM_TEMPLATES.map(f => `
+      <li class="dg-form-clickable" data-form-key="${escapeHtml(f.key)}">
+        <div class="dg-form-name">${f.icon || ''} ${escapeHtml(f.title)}</div>
+        <div class="dg-form-group">${escapeHtml(f.description)}</div>
+        <div class="dg-form-action-hint">👁 クリックでサンプル表示 / 印刷版生成</div>
       </li>
     `).join('');
+    formsHost.querySelectorAll('[data-form-key]').forEach(el => {
+      el.addEventListener('click', () => openFormSampleModal(el.dataset.formKey));
+    });
+  }
+
+  // 業務種別 codes table
+  const gyomuHost = document.getElementById('dg-gyomu-table');
+  if (gyomuHost) {
+    gyomuHost.innerHTML = '<thead><tr><th style="width:50px">コード</th><th>名称</th><th>説明</th></tr></thead><tbody>' +
+      GYOMU_CODES.map(c => `<tr><td>${escapeHtml(c.code)}</td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.desc)}</td></tr>`).join('') +
+      '</tbody>';
+  }
+
+  // 抹消区分 codes table
+  const massyoHost = document.getElementById('dg-massyo-table');
+  if (massyoHost) {
+    massyoHost.innerHTML = '<thead><tr><th>コード</th><th>名称</th><th>説明</th></tr></thead><tbody>' +
+      MASSYO_CODES.map(c => `<tr><td>${escapeHtml(c.code)}</td><td>${escapeHtml(c.name)}</td><td>${escapeHtml(c.desc)}</td></tr>`).join('') +
+      '</tbody>';
   }
 
   // Field checks
@@ -3916,6 +3937,465 @@ function renderDeregGuideSidebar() {
       </li>
     `).join('');
   }
+}
+
+// ============================================================================
+// Document archive (Phase 3) — per-case storage of submitted PDFs/scans
+// grouped by form type.
+// ============================================================================
+
+function renderDocArchive(caseId) {
+  const host = document.getElementById('doc-archive-host');
+  if (!host) return;
+  if (!caseId) {
+    host.innerHTML = '<div class="muted">案件を保存するとアーカイブが使えます。</div>';
+    return;
+  }
+
+  host.innerHTML = FORM_TEMPLATES.map(form => {
+    const files = listArchiveDocuments(caseId, form.key);
+    return `
+      <div class="archive-group">
+        <div class="archive-group__head">
+          <span class="archive-group__title">${form.icon || ''} ${escapeHtml(form.title)}</span>
+          <span class="archive-group__count">${files.length}件</span>
+        </div>
+        <div class="archive-group__body">
+          <div class="archive-dropzone" data-archive-drop="${escapeHtml(form.key)}">
+            📎 クリック or ドラッグ&ドロップで添付（PDF / 画像）
+            <input type="file" accept=".pdf,image/*" hidden data-archive-file="${escapeHtml(form.key)}">
+          </div>
+          ${files.length ? `
+            <ul class="archive-file-list">
+              ${files.map(f => {
+                const isPdf = (f.mime_type || '').includes('pdf') || /\.pdf$/i.test(f.filename || '');
+                const icon = isPdf ? '📄' : '🖼️';
+                return `
+                  <li class="archive-file">
+                    <div class="archive-file__icon">${icon}</div>
+                    <div class="archive-file__main">
+                      <div class="archive-file__name">${escapeHtml(f.filename || '無題')}</div>
+                      <div class="archive-file__meta">
+                        ${escapeHtml(new Date(f.uploaded_at).toLocaleString('ja-JP'))}
+                        ${f.uploaded_by ? ` · ${escapeHtml(f.uploaded_by)}` : ''}
+                      </div>
+                    </div>
+                    <button type="button" class="btn" data-archive-view="${f.id}">表示</button>
+                    <button type="button" class="btn btn--danger" data-archive-del="${f.id}">削除</button>
+                  </li>
+                `;
+              }).join('')}
+            </ul>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Wire dropzones
+  host.querySelectorAll('[data-archive-drop]').forEach(dz => {
+    const formKey = dz.dataset.archiveDrop;
+    const fileInp = host.querySelector(`[data-archive-file="${formKey}"]`);
+    dz.addEventListener('click', () => fileInp.click());
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dz.classList.remove('drag-over');
+      await handleArchiveFiles(caseId, formKey, e.dataTransfer.files);
+      renderDocArchive(caseId);
+    });
+    fileInp.addEventListener('change', async (e) => {
+      await handleArchiveFiles(caseId, formKey, e.target.files);
+      e.target.value = '';
+      renderDocArchive(caseId);
+    });
+  });
+
+  // View / Delete handlers
+  host.querySelectorAll('[data-archive-view]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.archiveView);
+      const doc = getArchiveDocument(id);
+      if (doc?.data_url) {
+        const w = window.open();
+        if (w) {
+          w.document.write(`<title>${escapeHtml(doc.filename || '')}</title><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${doc.data_url}" style="max-width:100%;max-height:100vh">`);
+          w.document.close();
+        }
+      }
+    });
+  });
+  host.querySelectorAll('[data-archive-del]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('この書類を削除しますか？')) return;
+      await deleteArchiveDocument(Number(btn.dataset.archiveDel));
+      renderDocArchive(caseId);
+    });
+  });
+}
+
+async function handleArchiveFiles(caseId, formKey, files) {
+  let added = 0;
+  for (const file of files) {
+    if (file.size > 5 * 1024 * 1024) {
+      toast(`${file.name} は5MBを超えています`, 'error');
+      continue;
+    }
+    const isImg = file.type.startsWith('image/');
+    let dataUrl;
+    if (isImg) {
+      // Resize images for storage efficiency
+      const raw = await fileToDataUrl(file);
+      dataUrl = await resizeImage(raw, 2000);
+    } else {
+      dataUrl = await fileToDataUrl(file);
+    }
+    const u = getCurrentUser();
+    await addArchiveDocument({
+      case_id: caseId,
+      form_key: formKey,
+      filename: file.name,
+      mime_type: file.type,
+      data_url: dataUrl,
+      uploaded_by: u?.username || '',
+    });
+    added++;
+  }
+  if (added) toast(`${added}件の書類を保管しました`, 'success');
+}
+
+// ============================================================================
+// Form sample modal — PDF page preview + case-data context + form generation
+// ============================================================================
+
+let CURRENT_FORM_KEY = null;
+let PDF_DOC_CACHE = null;
+
+async function loadSamplePdf() {
+  if (PDF_DOC_CACHE) return PDF_DOC_CACHE;
+  const pdfjs = await import('../vendor/pdf.min.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.mjs';
+  const loadingTask = pdfjs.getDocument(SAMPLE_PDF_PATH);
+  PDF_DOC_CACHE = await loadingTask.promise;
+  return PDF_DOC_CACHE;
+}
+
+async function openFormSampleModal(formKey) {
+  CURRENT_FORM_KEY = formKey;
+  const form = FORM_TEMPLATES.find(f => f.key === formKey);
+  if (!form) return;
+
+  const modal = document.getElementById('form-sample-modal');
+  modal.classList.remove('hidden');
+  document.getElementById('form-sample-title').textContent = `${form.icon || ''} ${form.title}`;
+  document.getElementById('form-sample-desc').textContent = form.description || '';
+
+  // Required fields list
+  const fieldsHost = document.getElementById('form-sample-fields');
+  const caseRow = DG_CURRENT_CASE ? getCase(DG_CURRENT_CASE) : null;
+  fieldsHost.innerHTML = (form.requiredFields || []).map(f => `
+    <li>
+      ${escapeHtml(f.label)}
+      ${f.expectedValue ? `<span class="ff-expected">→ ${escapeHtml(f.expectedValue)}</span>` : ''}
+      ${f.source ? `<span class="ff-source">${escapeHtml(f.source)}</span>` : ''}
+    </li>
+  `).join('');
+
+  // Case-data context
+  const caseCtxHost = document.getElementById('form-sample-case-context');
+  const caseDataHost = document.getElementById('form-sample-case-data');
+  const genBtn = document.getElementById('btn-generate-form');
+  if (caseRow) {
+    const dataItems = (form.requiredFields || [])
+      .filter(f => f.source && caseRow[f.source])
+      .map(f => `<li><span>${escapeHtml(f.source)}</span><span>${escapeHtml(String(caseRow[f.source]))}</span></li>`)
+      .join('');
+    if (dataItems) {
+      caseCtxHost.classList.remove('hidden');
+      caseDataHost.innerHTML = dataItems;
+    } else {
+      caseCtxHost.classList.add('hidden');
+    }
+    // Show "Generate printable" button only for forms we can render
+    if (['fee_payment_form', 'form_1', 'form_3_2'].includes(formKey)) {
+      genBtn.classList.remove('hidden');
+    } else {
+      genBtn.classList.add('hidden');
+    }
+  } else {
+    caseCtxHost.classList.add('hidden');
+    genBtn.classList.add('hidden');
+  }
+
+  // Render the PDF page
+  const pdfHost = document.getElementById('form-sample-pdf-host');
+  pdfHost.innerHTML = '<div class="form-sample-loading">PDFを読み込み中...</div>';
+  try {
+    const pdfDoc = await loadSamplePdf();
+    const page = await pdfDoc.getPage(form.samplePdfPage);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    pdfHost.innerHTML = '';
+    pdfHost.appendChild(canvas);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  } catch (e) {
+    pdfHost.innerHTML = `<div class="form-sample-loading">PDFの表示に失敗しました: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function setupFormSampleModal() {
+  document.querySelectorAll('[data-form-sample-close]').forEach(el => {
+    el.addEventListener('click', () => {
+      document.getElementById('form-sample-modal').classList.add('hidden');
+    });
+  });
+  document.getElementById('btn-generate-form').addEventListener('click', () => {
+    if (!CURRENT_FORM_KEY || !DG_CURRENT_CASE) return;
+    generatePrintableForm(CURRENT_FORM_KEY, DG_CURRENT_CASE);
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Printable MLIT form generation (Phase 4)
+// Generates an HTML document with case data pre-filled in a layout that
+// approximates the official form, then opens print dialog.
+// ----------------------------------------------------------------------------
+
+function generatePrintableForm(formKey, caseId) {
+  const c = getCase(caseId);
+  const seller = c?.seller_id ? getParty(c.seller_id) : null;
+  if (!c) return;
+
+  const w = window.open('', '_blank');
+  if (!w) { toast('ポップアップがブロックされました。許可してください。', 'error'); return; }
+
+  const formHtml = buildFormHtml(formKey, c, seller);
+  w.document.write(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>${formKey} - ${escapeHtml(c.case_code || c.id)}</title>
+<link rel="stylesheet" href="${window.location.origin}/css/app.css?v=30">
+<style>
+  body { background:#e5e7eb; padding:24px; margin:0; }
+  @media print { body { background:#fff; padding:0; } .mlit-form { box-shadow:none; } @page { size:A4 landscape; margin:0; } }
+</style>
+</head>
+<body>${formHtml}</body>
+</html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
+}
+
+function buildFormHtml(formKey, c, seller) {
+  if (formKey === 'fee_payment_form') return buildFeePaymentForm(c, seller);
+  if (formKey === 'form_1')           return buildForm1(c, seller);
+  if (formKey === 'form_3_2')         return buildForm3_2(c, seller);
+  return '<div>未対応の様式</div>';
+}
+
+function buildFeePaymentForm(c, seller) {
+  const h = escapeHtml;
+  const sellerName = seller?.company_name || '';
+  return `
+    <div class="mlit-form">
+      <div class="mlit-form__header">
+        <h1 class="mlit-form__title">手 数 料 納 付 書</h1>
+        <div class="mlit-form__form-no">案件: ${h(c.case_code || '#' + c.id)}</div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">基本情報</div>
+        <div class="mlit-form__row">
+          <div>自動車登録番号 OR 車台番号</div>
+          <div>${h(c.registration_no || c.chassis_no || '')}</div>
+        </div>
+        <div class="mlit-form__row">
+          <div>所有者または使用者の氏名/名称</div>
+          <div>${h(sellerName)}</div>
+        </div>
+        <div class="mlit-form__row">
+          <div>申請人または申請代理人の氏名</div>
+          <div>${h(getSetting('signer_name', 'MAKOTO Kubota'))}</div>
+        </div>
+        <div class="mlit-form__row">
+          <div>連絡先</div>
+          <div>${h(seller?.tel || '')}</div>
+        </div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">申請種別（該当に ☑ ）</div>
+        <div style="padding:10px 14px;font-size:10pt;line-height:1.8">
+          ☐ 新規登録・新規検査 &nbsp;&nbsp; ☐ 変更登録 &nbsp;&nbsp; ☐ 移転登録 &nbsp;&nbsp;
+          ☐ 一時抹消登録 &nbsp;&nbsp; ☐ 永久抹消登録 &nbsp;&nbsp;
+          <strong>☑ 輸出抹消仮登録</strong> &nbsp;&nbsp;
+          ☐ 登録事項等証明書 &nbsp;&nbsp; ☐ 自動車検査証返納証明書
+        </div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">手数料</div>
+        <div class="mlit-form__row"><div>登録手数料</div><div>¥500 印紙貼付</div></div>
+        <div class="mlit-form__row"><div>検査手数料</div><div></div></div>
+        <div class="mlit-form__row"><div>審査手数料</div><div></div></div>
+      </div>
+
+      <div class="mlit-form__signature-area">
+        <div>
+          <div style="font-size:9pt;color:#666">申請人</div>
+          <div class="mlit-form__sig-line">${h(sellerName)}</div>
+        </div>
+        <div>
+          <div style="font-size:9pt;color:#666">受付印</div>
+          <div class="mlit-form__sig-line"></div>
+        </div>
+      </div>
+      <div style="margin-top:14px;padding:8px;background:#fef3c7;border-radius:4px;font-size:9pt;color:#92400e">
+        ⚠️ これはシステム生成のドラフトです。実際の提出は国土交通省の公式様式で行ってください。
+      </div>
+    </div>
+  `;
+}
+
+function buildForm1(c, seller) {
+  const h = escapeHtml;
+  const sellerName = seller?.company_name || '';
+  return `
+    <div class="mlit-form">
+      <div class="mlit-form__header">
+        <h1 class="mlit-form__title">第 1 号 様 式 申 請 書</h1>
+        <div class="mlit-form__form-no">案件: ${h(c.case_code || '#' + c.id)}</div>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div style="font-size:9pt;color:#666">①業務種別</div>
+        <div class="mlit-form__gyomu">
+          <div class="mlit-form__gyomu__cell">1</div>
+          <div class="mlit-form__gyomu__cell">0</div>
+          <div class="mlit-form__gyomu__cell">1</div>
+          <div class="mlit-form__gyomu__cell">1</div>
+        </div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">㉑自動車登録番号 / ㉒車台番号</div>
+        <div class="mlit-form__row"><div>自動車登録番号</div><div>${h(c.registration_no || '')}</div></div>
+        <div class="mlit-form__row"><div>車台番号</div><div>${h(c.chassis_no || '')}</div></div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">所有者欄</div>
+        <div class="mlit-form__row"><div>氏名/名称</div><div>${h(sellerName)}</div></div>
+        <div class="mlit-form__row"><div>住所</div><div>${h(seller?.address || '').replace(/\n/g, '<br>')}</div></div>
+        <div class="mlit-form__row"><div>所有者コード</div><div>${h(c.owner_code || '')}</div></div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">車両仕様</div>
+        <div class="mlit-form__row"><div>㉔自動車型式指定 / 類別区分番号</div><div>${h(c.spec_no || '')} / ${h(c.classification_no || '')}</div></div>
+        <div class="mlit-form__row"><div>製作年月日</div><div>${h(c.first_reg_date || '')}</div></div>
+        <div class="mlit-form__row"><div>走行距離計表示値</div><div>${h(c.mileage || '')}</div></div>
+      </div>
+
+      <div class="mlit-form__signature-area">
+        <div>
+          <div style="font-size:9pt;color:#666">申請人</div>
+          <div class="mlit-form__sig-line">
+            ${h(sellerName)}<span class="mlit-form__inkan">㊞</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:9pt;color:#666">運輸支局長殿 / 令和　年　月　日</div>
+          <div class="mlit-form__sig-line"></div>
+        </div>
+      </div>
+      <div style="margin-top:14px;padding:8px;background:#fef3c7;border-radius:4px;font-size:9pt;color:#92400e">
+        ⚠️ これはシステム生成のドラフトです。実際の提出は国土交通省の公式様式で行ってください。
+      </div>
+    </div>
+  `;
+}
+
+function buildForm3_2(c, seller) {
+  const h = escapeHtml;
+  const sellerName = seller?.company_name || '';
+  return `
+    <div class="mlit-form">
+      <div class="mlit-form__header">
+        <h1 class="mlit-form__title">第 3 号 様 式 の 2 申請書 / 届出書</h1>
+        <div class="mlit-form__form-no">案件: ${h(c.case_code || '#' + c.id)}</div>
+      </div>
+
+      <div style="display:flex;gap:24px;margin-bottom:10px">
+        <div>
+          <div style="font-size:9pt;color:#666">①業務種別</div>
+          <div class="mlit-form__gyomu">
+            <div class="mlit-form__gyomu__cell">1</div>
+            <div class="mlit-form__gyomu__cell">3</div>
+            <div class="mlit-form__gyomu__cell">3</div>
+            <div class="mlit-form__gyomu__cell">1</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:9pt;color:#666">⑫抹消（1解体/2一時/3輸出/4減失/5用途廃止）</div>
+          <div class="mlit-form__gyomu">
+            <div class="mlit-form__gyomu__cell">3</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div style="display:inline-flex;gap:12px;font-size:10pt">
+          ☐ 永久抹消登録 &nbsp;&nbsp;
+          <strong>☑ 輸出抹消仮登録</strong> &nbsp;&nbsp;
+          ☐ 一時抹消登録 &nbsp;&nbsp;
+          ☐ 自動車検査証返納証明書交付
+        </div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">車両情報</div>
+        <div class="mlit-form__row"><div>㉑自動車登録番号</div><div>${h(c.registration_no || '')}</div></div>
+        <div class="mlit-form__row"><div>㉒車台番号</div><div>${h(c.chassis_no || '')}</div></div>
+        <div class="mlit-form__row"><div>⑱輸出予定日</div><div>${h(c.export_scheduled_date || '')}（申請日から30日以内）</div></div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">申請人・届出人（所有者）</div>
+        <div class="mlit-form__row"><div>氏名/名称</div><div>${h(sellerName)}</div></div>
+        <div class="mlit-form__row"><div>住所</div><div>${h(seller?.address || '').replace(/\n/g, '<br>')}</div></div>
+      </div>
+
+      <div class="mlit-form__section">
+        <div class="mlit-form__section-title">届出の原因</div>
+        <div style="padding:8px 14px;font-size:10pt;line-height:2">
+          ☐ 滅失 &nbsp;&nbsp; ☐ 解体（使用済自動車の解体を除く） &nbsp;&nbsp; ☐ 用途廃止<br>
+          ☐ 車台が新規登録を受けた際に存したものでなくなったとき &nbsp;&nbsp; ☐ 一時使用中止<br>
+          <strong style="color:#dc2626">☑ 輸出</strong>
+        </div>
+      </div>
+
+      <div class="mlit-form__signature-area">
+        <div>
+          <div style="font-size:9pt;color:#666">申請人・届出人（所有者）</div>
+          <div class="mlit-form__sig-line">
+            ${h(sellerName)}<span class="mlit-form__inkan">㊞</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:9pt;color:#666">運輸支局長殿</div>
+          <div style="font-size:9pt;color:#666">令和　年　月　日</div>
+        </div>
+      </div>
+      <div style="margin-top:14px;padding:8px;background:#fef3c7;border-radius:4px;font-size:9pt;color:#92400e">
+        ⚠️ これはシステム生成のドラフトです。実際の提出は国土交通省の公式様式で行ってください。
+      </div>
+    </div>
+  `;
 }
 
 // ============================================================================

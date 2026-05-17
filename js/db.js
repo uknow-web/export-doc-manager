@@ -353,6 +353,20 @@ CREATE TABLE IF NOT EXISTS case_documents (
   FOREIGN KEY (ap_holder_id) REFERENCES parties(id)
 );
 
+CREATE TABLE IF NOT EXISTS case_documents_archive (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  case_id       INTEGER NOT NULL,
+  form_key      TEXT NOT NULL,
+  filename      TEXT,
+  mime_type     TEXT,
+  data_url      TEXT,
+  uploaded_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+  uploaded_by   TEXT,
+  note          TEXT,
+  FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_archive_case ON case_documents_archive(case_id, form_key);
+
 CREATE TABLE IF NOT EXISTS case_dereg_checklist (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   case_id       INTEGER NOT NULL,
@@ -843,6 +857,44 @@ export function casesSummary(filters = {}) {
 
 export function getCase(id) {
   return queryOne('SELECT * FROM cases WHERE id=?', [id]);
+}
+
+// ---- 提出書類アーカイブ (Phase 3) -----------------------------------------
+const ARCHIVE_FIELDS = ['case_id','form_key','filename','mime_type','data_url','uploaded_by','note'];
+
+export async function addArchiveDocument(data) {
+  const cols = ARCHIVE_FIELDS;
+  const vals = cols.map(k => {
+    const v = data[k];
+    if (v === '' || v === undefined) return null;
+    return v;
+  });
+  const ph = cols.map(() => '?').join(',');
+  run(`INSERT INTO case_documents_archive (${cols.join(',')}) VALUES (${ph})`, vals);
+  await persist();
+  return lastInsertId();
+}
+
+export async function deleteArchiveDocument(id) {
+  run('DELETE FROM case_documents_archive WHERE id=?', [id]);
+  await persist();
+}
+
+export function listArchiveDocuments(case_id, form_key = null) {
+  if (form_key) {
+    return query(
+      'SELECT id, case_id, form_key, filename, mime_type, uploaded_at, uploaded_by, note FROM case_documents_archive WHERE case_id=? AND form_key=? ORDER BY uploaded_at DESC',
+      [case_id, form_key]
+    );
+  }
+  return query(
+    'SELECT id, case_id, form_key, filename, mime_type, uploaded_at, uploaded_by, note FROM case_documents_archive WHERE case_id=? ORDER BY form_key, uploaded_at DESC',
+    [case_id]
+  );
+}
+
+export function getArchiveDocument(id) {
+  return queryOne('SELECT * FROM case_documents_archive WHERE id=?', [id]);
 }
 
 // ---- 輸出抹消手続きチェックリスト -----------------------------------------
