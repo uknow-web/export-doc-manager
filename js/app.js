@@ -50,6 +50,7 @@ import { getDek } from './db.js';
 import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.js';
 import { VEHICLE_CATEGORIES, categoryLabel, categoryEnLabel, categoryIcon, categoryBadge, normalizeCategory, defaultHsCode } from './categories.js';
 import { DEREG_CHECKLIST, totalItems as deregTotalItems, requiredDocumentsList, DEREG_REFERENCES, FORM_TEMPLATES, SAMPLE_PDF_PATH, GYOMU_CODES, MASSYO_CODES } from './dereg-checklist.js';
+import { connectAndVerify, migrateAll, verifyCounts } from './cloud-migrate.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
   deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
@@ -108,6 +109,7 @@ const DOC_TYPES = [
   setupSettings();
   setupUserManagement();
   setupAuditViewer();
+  setupCloudMigration();
   setupUserMenu();
   setupPasswordChange();
   setup2FA();
@@ -5209,6 +5211,116 @@ function renderApCarCard({ case: c, current, historical }, today, isCurrent) {
       </div>
     </div>
   `;
+}
+
+// ============================================================================
+// Cloud migration (Step 1) — Supabase へのデータ一括コピー
+// ============================================================================
+
+let CLOUD_SB = null; // connectAndVerify() 済みのクライアント
+
+function setupCloudMigration() {
+  const testBtn    = document.getElementById('btn-cloud-test');
+  if (!testBtn || testBtn.dataset.wired) return;
+  testBtn.dataset.wired = 'true';
+
+  const migrateBtn = document.getElementById('btn-cloud-migrate');
+  const verifyBtn  = document.getElementById('btn-cloud-verify');
+  const logEl      = document.getElementById('cloud-log');
+  const progWrap   = document.getElementById('cloud-progress-wrap');
+  const progFill   = document.getElementById('cloud-progress-fill');
+  const progText   = document.getElementById('cloud-progress-text');
+
+  // URL / Anon Key は localStorage に保存（次回入力を省く。Anon Keyは公開前提のキー）
+  document.getElementById('cloud-url').value      = localStorage.getItem('edm_supabase_url') || '';
+  document.getElementById('cloud-anon-key').value = localStorage.getItem('edm_supabase_anon_key') || '';
+
+  const log = (msg) => {
+    logEl.classList.remove('hidden');
+    logEl.textContent += msg + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+
+  testBtn.addEventListener('click', async () => {
+    if (!canManageUsers(getCurrentUser())) { toast('管理者のみ実行できます', 'error'); return; }
+    const url      = document.getElementById('cloud-url').value.trim();
+    const anonKey  = document.getElementById('cloud-anon-key').value.trim();
+    const email    = document.getElementById('cloud-email').value.trim();
+    const password = document.getElementById('cloud-password').value;
+    if (!url || !anonKey || !email || !password) {
+      toast('URL / Anon Key / メール / パスワードをすべて入力してください', 'error');
+      return;
+    }
+    logEl.textContent = '';
+    testBtn.disabled = true;
+    try {
+      CLOUD_SB = await connectAndVerify(url, anonKey, email, password, log);
+      localStorage.setItem('edm_supabase_url', url);
+      localStorage.setItem('edm_supabase_anon_key', anonKey);
+      migrateBtn.disabled = false;
+      verifyBtn.disabled = false;
+      log('✅ 接続準備完了。「2. 全データを移行」を実行できます。');
+      toast('接続テスト成功', 'success');
+    } catch (e) {
+      CLOUD_SB = null;
+      migrateBtn.disabled = true;
+      verifyBtn.disabled = true;
+      log('❌ ' + e.message);
+      toast('接続テスト失敗', 'error');
+    } finally {
+      testBtn.disabled = false;
+    }
+  });
+
+  migrateBtn.addEventListener('click', async () => {
+    if (!CLOUD_SB) { toast('先に接続テストを実行してください', 'error'); return; }
+    if (!confirm('ローカルの全データを Supabase へコピーします。\n（再実行可能・ローカルデータは消えません）\n実行しますか？')) return;
+    migrateBtn.disabled = true;
+    progWrap.classList.remove('hidden');
+    try {
+      const { migrated, errors } = await migrateAll(CLOUD_SB, log, (done, total) => {
+        const pct = total ? Math.round((done / total) * 100) : 0;
+        progFill.style.width = pct + '%';
+        progText.textContent = `${done} / ${total} 行 (${pct}%)`;
+      });
+      const totalMigrated = Object.values(migrated).reduce((s, n) => s + n, 0);
+      if (errors.length) {
+        log(`\n⚠️ 完了（${totalMigrated}行 / エラー ${errors.length}件）— もう一度「全データを移行」で修復を試せます`);
+        toast(`移行完了（エラー${errors.length}件あり）`, 'error');
+      } else {
+        log(`\n✅ 全テーブル移行完了（合計 ${totalMigrated} 行）。「3. 件数照合」で確認してください。`);
+        toast('移行完了', 'success');
+      }
+      const u = getCurrentUser();
+      await appendAuditLog({
+        actor_user_id: u.id, actor_username: u.username,
+        action: 'cloud_migrate',
+        summary: `Supabaseへ移行: ${totalMigrated}行 / エラー${errors.length}件`,
+      });
+    } catch (e) {
+      log('❌ 移行中断: ' + e.message);
+      toast('移行に失敗しました', 'error');
+    } finally {
+      migrateBtn.disabled = false;
+    }
+  });
+
+  verifyBtn.addEventListener('click', async () => {
+    if (!CLOUD_SB) { toast('先に接続テストを実行してください', 'error'); return; }
+    verifyBtn.disabled = true;
+    log('\n--- 件数照合 ---');
+    try {
+      const results = await verifyCounts(CLOUD_SB, log);
+      const ng = results.filter(r => !r.ok);
+      log(ng.length === 0
+        ? '✅ 全テーブル一致 — 移行は完全です'
+        : `⚠️ ${ng.length}テーブルで不一致 — 「全データを移行」を再実行してください`);
+    } catch (e) {
+      log('❌ 照合失敗: ' + e.message);
+    } finally {
+      verifyBtn.disabled = false;
+    }
+  });
 }
 
 // ============================================================================

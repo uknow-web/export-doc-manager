@@ -1285,6 +1285,69 @@ HSコードは案件側で個別設定できますが、参考として:</p>
     `,
   },
   {
+    id: 'cloud-migration',
+    title: 'クラウド移行（Supabase）',
+    content: `
+<h1>クラウド移行（Supabase）</h1>
+<p>ローカル（ブラウザ内）のデータを Supabase Postgres へ移行する機能です。複数人でのデータ共有・Buyer/AP Holderポータルの実運用に向けた第一歩（Step 1）。</p>
+
+<h2>移行の全体像（3ステップ計画）</h2>
+<table>
+  <tr><th>Step</th><th>内容</th><th>状態</th></tr>
+  <tr><td>Step 1</td><td>スキーマ移植 + 移行ツール（データのコピー）</td><td>✅ 実装済み</td></tr>
+  <tr><td>Step 2</td><td>アプリ本体のクラウド切替（読み書き先の変更・認証・写真Storage）</td><td>予定</td></tr>
+  <tr><td>Step 3</td><td>Buyer / AP Holder 実ログイン + 招待メール</td><td>予定</td></tr>
+</table>
+
+<h2>事前準備（管理者の作業・約15分）</h2>
+<p>リポジトリの <code>supabase/README.md</code> に詳細手順があります。概要:</p>
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>supabase.com で無料プロジェクト作成（リージョンは<strong>東京</strong>）</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>SQL Editor で <code>001_schema.sql</code> → <code>002_rls.sql</code> を実行</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>Authentication で管理者ユーザー作成 → SQLで role='admin' に昇格</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">4</div>
+  <div class="help-step__body"><p>Project Settings → API から URL と anon キーを取得</p></div>
+</div>
+
+<h2>アプリでの移行手順</h2>
+<div class="help-step">
+  <div class="help-step__num">1</div>
+  <div class="help-step__body"><p>設定 → ☁️ クラウド移行（admin のみ表示）</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">2</div>
+  <div class="help-step__body"><p>URL / anon キー / 管理者メール / パスワードを入力 → 「接続テスト＆サインイン」</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">3</div>
+  <div class="help-step__body"><p>「全データを移行」→ 進捗バーで完了を待つ</p></div>
+</div>
+<div class="help-step">
+  <div class="help-step__num">4</div>
+  <div class="help-step__body"><p>「件数照合」で全テーブル ✅ を確認</p></div>
+</div>
+
+<h2>安全設計</h2>
+<ul>
+  <li><strong>ローカルデータは消えない</strong> — 移行はコピーのみ。アプリはStep 2まで従来通りローカルで動作</li>
+  <li><strong>再実行可能</strong> — 同じIDは上書き（upsert）。途中失敗しても再実行で修復</li>
+  <li><strong>RLS（行レベルセキュリティ）</strong> — anonキーが公開でも、ログインユーザーのロールに応じたデータしか読めない</li>
+  <li><strong>ユーザーパスワードは移行しない</strong> — スタッフはSupabase Authで再作成（README参照）</li>
+</ul>
+
+<blockquote class="warn">⚠️ Supabase の <code>service_role</code> キーは絶対にアプリに入力しないでください。RLSをバイパスする全権キーです。使うのは <code>anon public</code> キーのみ。</blockquote>
+    `,
+  },
+  {
     id: 'backup',
     title: 'DBバックアップ・復元',
     content: `
