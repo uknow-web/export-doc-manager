@@ -23,6 +23,7 @@
 2. このリポジトリの `supabase/migrations/001_schema.sql` の内容を全コピー＆ペースト → 「Run」
    - `Success. No rows returned` と出ればOK
 3. 同様に `supabase/migrations/002_rls.sql` を実行
+4. 同様に `supabase/migrations/003_archive_documents.sql` を実行（提出書類アーカイブ用）
 
 ## 3. 管理者ユーザーを作成する
 

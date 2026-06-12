@@ -122,12 +122,116 @@ export function clearSession() {
 }
 
 export function getCurrentUser() {
+  // クラウドモード: Supabase プロファイル（メモリキャッシュ）を返す
+  if (cloudProfile) {
+    const s = getSession();
+    if (!s) return null; // アイドルタイムアウト後
+    return cloudProfile;
+  }
   const s = getSession();
   if (!s) return null;
   const u = getUser(s.user_id);
   if (!u || !u.is_active) return null;
   return u;
 }
+
+// ===========================================================================
+// クラウド認証（Supabase Auth） — Step 2
+// ---------------------------------------------------------------------------
+// ローカル認証(PBKDF2/KEK-DEK)と同じ呼び出し規約を保ちながら、
+// 実体は Supabase Auth + profiles テーブルに委譲する。
+// getCurrentUser() は両モードで同じ形のオブジェクトを返す。
+// ===========================================================================
+
+let cloudProfile = null; // { id(uuid), username, display_name, role, party_id, is_active, totp_enabled }
+
+const STAFF_ROLES = ['admin', 'editor', 'viewer'];
+
+function mapCloudProfile(p, email) {
+  return {
+    id: p.id,
+    username: p.username || email,
+    display_name: p.display_name || p.username || email,
+    role: p.role,
+    party_id: p.party_id ?? null,
+    is_active: p.is_active ? 1 : 0,
+    totp_enabled: 0, // クラウドのMFAは Step 3 で Supabase MFA に統合予定
+    email,
+  };
+}
+
+async function fetchOwnProfile(sb, uid) {
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id, username, display_name, role, party_id, is_active')
+    .eq('id', uid)
+    .single();
+  if (error) return null;
+  return data;
+}
+
+/** メール+パスワードでサインイン。スタッフロールのみ管理画面に入れる。 */
+export async function cloudLogin(sb, email, password) {
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    return { ok: false, reason: 'メールアドレスまたはパスワードが違います' };
+  }
+  const prof = await fetchOwnProfile(sb, data.user.id);
+  if (!prof) {
+    await sb.auth.signOut();
+    return { ok: false, reason: 'プロファイルが見つかりません。管理者に連絡してください（profiles 未作成）' };
+  }
+  if (!prof.is_active) {
+    await sb.auth.signOut();
+    return { ok: false, reason: 'このアカウントは無効化されています' };
+  }
+  if (!STAFF_ROLES.includes(prof.role)) {
+    await sb.auth.signOut();
+    return { ok: false, reason: 'このアカウントは管理画面にアクセスできません（Buyer/APポータルは今後対応）' };
+  }
+  cloudProfile = mapCloudProfile(prof, data.user.email);
+  setSession({
+    user_id: cloudProfile.id, username: cloudProfile.username, role: cloudProfile.role,
+    loggedInAt: Date.now(), lastActivityAt: Date.now(),
+  });
+  return { ok: true, profile: cloudProfile };
+}
+
+/**
+ * ページリロード時のサイレント復元。
+ * sessionStorage（アイドル管理）と Supabase セッションの両方が生きていれば
+ * パスワード入力なしで復帰する。
+ */
+export async function cloudRestoreSession(sb) {
+  const s = getSession();
+  if (!s) return null;
+  const { data } = await sb.auth.getSession();
+  if (!data?.session?.user) return null;
+  const prof = await fetchOwnProfile(sb, data.session.user.id);
+  if (!prof || !prof.is_active || !STAFF_ROLES.includes(prof.role)) return null;
+  cloudProfile = mapCloudProfile(prof, data.session.user.email);
+  return cloudProfile;
+}
+
+export async function cloudLogout(sb) {
+  try { await sb?.auth?.signOut(); } catch { /* offline でも続行 */ }
+  cloudProfile = null;
+  clearSession();
+}
+
+/** 自分のパスワード変更（現在のパスワードを再認証してから更新） */
+export async function cloudChangePassword(sb, currentPassword, newPassword) {
+  const { data } = await sb.auth.getUser();
+  const email = data?.user?.email;
+  if (!email) return { ok: false, reason: 'セッションが無効です。再ログインしてください' };
+  const { error: e1 } = await sb.auth.signInWithPassword({ email, password: currentPassword });
+  if (e1) return { ok: false, reason: '現在のパスワードが正しくありません' };
+  const { error: e2 } = await sb.auth.updateUser({ password: newPassword });
+  if (e2) return { ok: false, reason: 'パスワード更新失敗: ' + e2.message };
+  return { ok: true };
+}
+
+export function isCloudAuthed() { return cloudProfile !== null; }
 
 // ---- Login / Logout -------------------------------------------------------
 

@@ -51,6 +51,15 @@ import { generateTotpSecret, verifyTotp, otpauthUrl, qrImageUrl } from './totp.j
 import { VEHICLE_CATEGORIES, categoryLabel, categoryEnLabel, categoryIcon, categoryBadge, normalizeCategory, defaultHsCode } from './categories.js';
 import { DEREG_CHECKLIST, totalItems as deregTotalItems, requiredDocumentsList, DEREG_REFERENCES, FORM_TEMPLATES, SAMPLE_PDF_PATH, GYOMU_CODES, MASSYO_CODES } from './dereg-checklist.js';
 import { connectAndVerify, migrateAll, verifyCounts } from './cloud-migrate.js';
+import { getCloudConfig, saveCloudConfig } from './cloud-config.js';
+import {
+  initCloudClient, getClient as getCloudClient, setCloudActive, isCloudActive,
+  pullAllToMirror, refreshProfilesCache, getProfilesCache, updateProfile,
+} from './cloud-db.js';
+import {
+  cloudLogin, cloudRestoreSession, cloudLogout, cloudChangePassword, isCloudAuthed,
+} from './auth.js';
+import { initDBShell, run as dbRun, query as dbQuery } from './db.js';
 import {
   createUser as dbCreateUser, updateUser as dbUpdateUser,
   deleteUser as dbDeleteUser, listUsers, getUser as dbGetUser,
@@ -90,7 +99,20 @@ const DOC_TYPES = [
 
 // ---- Boot -----------------------------------------------------------------
 (async function boot() {
-  await initDB();
+  // 想定外のエラーはトーストで可視化（クラウド書き込み失敗などの安全網）
+  window.addEventListener('unhandledrejection', (e) => {
+    const msg = e.reason?.message || String(e.reason || '不明なエラー');
+    console.error('Unhandled rejection:', e.reason);
+    try { toast(msg, 'error'); } catch { /* toast未初期化なら無視 */ }
+  });
+
+  const bootCfg = getCloudConfig();
+  if (bootCfg.mode === 'cloud' || bootCfg.mode === 'cloud-setup') {
+    // クラウドモード: メモリ内ミラーのみ（IndexedDBは使わない）
+    await initDBShell();
+  } else {
+    await initDB();
+  }
   // Authentication gate — must come before any UI setup that queries user
   // context. showAuthOverlay() resolves when the user is logged in.
   await requireAuthentication();
@@ -179,6 +201,14 @@ async function requireAuthentication() {
   const params = new URLSearchParams(window.location.search);
   const returnTo = params.get('return') || '/';
 
+  // ===== クラウドモード: Supabase Auth =====
+  const cloudCfg = getCloudConfig();
+  if (cloudCfg.mode === 'cloud' || cloudCfg.mode === 'cloud-setup') {
+    await requireCloudAuthentication(overlay, cloudCfg, path, returnTo);
+    return;
+  }
+
+  // ===== 以下、ローカルモード（従来動作） =====
   // IMPORTANT: check bootstrap_meta FIRST. When encryption is enabled, the
   // in-memory DB is an empty shell until the user logs in and decrypts it —
   // so usersCount() would incorrectly return 0 and trigger initial setup.
@@ -216,6 +246,125 @@ async function requireAuthentication() {
   const finalDestination = returnTo && returnTo !== '/login' && returnTo !== '/logout'
     ? returnTo : '/';
   history.replaceState({}, '', finalDestination);
+}
+
+// ===========================================================================
+// クラウド認証フロー（Supabase Auth）
+// ===========================================================================
+
+async function requireCloudAuthentication(overlay, cfg, path, returnTo) {
+  // anon キー未設定 → ログイン画面に接続設定を表示して入力を待つ
+  if (cfg.mode === 'cloud-setup') {
+    await runCloudConnectionSetup(overlay, cfg);
+    return; // saveCloudConfig 後にリロードされるためここには戻らない
+  }
+
+  const sb = initCloudClient();
+
+  // ページリロード時のサイレント復元
+  const restored = await cloudRestoreSession(sb);
+  if (restored) {
+    await activateCloudData(sb);
+    overlay.classList.add('hidden');
+    if (path === '/login' || path === '/logout') {
+      history.replaceState({}, '', returnTo && returnTo !== '/login' ? returnTo : '/');
+    }
+    return;
+  }
+
+  // ログインフォーム表示
+  if (path !== '/login') {
+    const q = (path !== '/' && path !== '/logout') ? `?return=${encodeURIComponent(path)}` : '';
+    history.replaceState({}, '', '/login' + q);
+  }
+  await runCloudLogin(overlay, sb);
+  const finalDestination = returnTo && returnTo !== '/login' && returnTo !== '/logout'
+    ? returnTo : '/';
+  history.replaceState({}, '', finalDestination);
+}
+
+/** サインイン成功後の共通処理: 全データのpull → ライトスルー有効化 */
+async function activateCloudData(sb) {
+  await pullAllToMirror({ run: dbRun, query: dbQuery });
+  setCloudActive(true);
+  try { await refreshProfilesCache(); } catch { /* 非adminはRLSで自分の行のみ */ }
+  // クラウドモードでは不要なUIを隠す
+  document.body.classList.add('cloud-mode');
+}
+
+function runCloudLogin(overlay, sb) {
+  return new Promise((resolve) => {
+    overlay.classList.remove('hidden');
+    document.getElementById('auth-subtitle').textContent = 'ログイン（クラウド）';
+    const loginForm = document.getElementById('auth-login-form');
+    loginForm.classList.remove('hidden');
+    document.getElementById('auth-setup-form').classList.add('hidden');
+    document.getElementById('auth-totp-form')?.classList.add('hidden');
+    // ラベルをメールアドレスに変更
+    const userLabel = loginForm.querySelector('label');
+    if (userLabel) userLabel.firstChild.textContent = 'メールアドレス ';
+    const userInput = loginForm.elements.username;
+    if (userInput) { userInput.type = 'email'; userInput.autocomplete = 'email'; }
+    // ローカル専用のリセットリンクは隠す
+    document.getElementById('btn-reset-all-data')?.parentElement &&
+      (document.getElementById('btn-reset-all-data').parentElement.style.display = 'none');
+
+    const err = document.getElementById('auth-error');
+    loginForm.onsubmit = async (e) => {
+      e.preventDefault();
+      err.classList.add('hidden');
+      const d = new FormData(loginForm);
+      const email = String(d.get('username')).trim();
+      const password = String(d.get('password'));
+      const submitBtn = loginForm.querySelector('button[type="submit"]');
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'サインイン中…'; }
+      try {
+        const result = await cloudLogin(sb, email, password);
+        if (!result.ok) {
+          err.textContent = result.reason || 'ログインに失敗しました';
+          err.classList.remove('hidden');
+          return;
+        }
+        if (submitBtn) submitBtn.textContent = 'データ読込中…';
+        await activateCloudData(sb);
+        await appendAuditLog({
+          actor_user_id: result.profile.id, actor_username: result.profile.username,
+          action: 'login', summary: `ログイン（クラウド、ロール: ${result.profile.role}）`,
+        });
+        overlay.classList.add('hidden');
+        loginForm.reset();
+        resolve();
+      } catch (e2) {
+        err.textContent = 'エラー: ' + e2.message;
+        err.classList.remove('hidden');
+      } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'ログイン'; }
+      }
+    };
+  });
+}
+
+/** anon キー未設定時の初回接続設定（保存後リロード） */
+function runCloudConnectionSetup(overlay, cfg) {
+  return new Promise(() => {
+    overlay.classList.remove('hidden');
+    document.getElementById('auth-subtitle').textContent = 'クラウド接続設定';
+    document.getElementById('auth-login-form').classList.add('hidden');
+    document.getElementById('auth-setup-form').classList.add('hidden');
+    document.getElementById('auth-totp-form')?.classList.add('hidden');
+    const wrap = document.getElementById('cloud-connect-setup');
+    if (wrap) {
+      wrap.classList.remove('hidden');
+      document.getElementById('cc-url').value = cfg.url || '';
+      document.getElementById('btn-cc-save').onclick = () => {
+        const url = document.getElementById('cc-url').value.trim();
+        const key = document.getElementById('cc-anon-key').value.trim();
+        if (!url || !key) { alert('URLとanonキーの両方を入力してください'); return; }
+        saveCloudConfig(url, key);
+        window.location.reload();
+      };
+    }
+  });
 }
 
 function runInitialSetup(overlay) {
@@ -398,6 +547,36 @@ function switchTab(name) {
 
 // ---- Header: DB export/import --------------------------------------------
 function setupHeader() {
+  // クラウドモード: 再読込ボタンを表示、DBインポート（上書き）は危険なので無効化
+  if (isCloudAuthed()) {
+    const refreshBtn = document.getElementById('btn-cloud-refresh');
+    refreshBtn.classList.remove('hidden');
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '🔄 読込中…';
+      try {
+        setCloudActive(false); // pull中の persist 干渉を防ぐ
+        await pullAllToMirror({ run: dbRun, query: dbQuery });
+        setCloudActive(true);
+        renderCases(); renderParties(); renderVehicleModels(); refreshPreviewOptions();
+        toast('最新データを読み込みました', 'success');
+      } catch (e) {
+        setCloudActive(true);
+        toast('再読込失敗: ' + e.message, 'error');
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '🔄 再読込';
+      }
+    });
+    // インポートはローカルミラーを壊すだけなので塞ぐ
+    const importLabel = document.getElementById('file-import-db')?.closest('label');
+    if (importLabel) {
+      importLabel.style.opacity = '.4';
+      importLabel.style.pointerEvents = 'none';
+      importLabel.title = 'クラウドモードではDBインポートは使用できません';
+    }
+  }
+
   document.getElementById('btn-export-db').addEventListener('click', async () => {
     if (!canManageUsers(getCurrentUser())) { toast('DBエクスポートは管理者のみ', 'error'); return; }
     const choice = confirm(
@@ -3187,7 +3366,11 @@ function setupUserMenu() {
   });
   menu.querySelector('[data-user-action="logout"]').addEventListener('click', async () => {
     if (!confirm('ログアウトしますか？')) return;
-    await authLogout();
+    if (isCloudAuthed()) {
+      await cloudLogout(getCloudClient());
+    } else {
+      await authLogout();
+    }
     // Navigate to /login (hard redirect so the app boots fresh)
     window.location.href = '/login';
   });
@@ -3195,10 +3378,16 @@ function setupUserMenu() {
     menu.classList.add('hidden');
     document.getElementById('password-modal').classList.remove('hidden');
   });
-  menu.querySelector('[data-user-action="manage-2fa"]').addEventListener('click', () => {
-    menu.classList.add('hidden');
-    open2FAModal();
-  });
+  const mfaItem = menu.querySelector('[data-user-action="manage-2fa"]');
+  if (isCloudAuthed()) {
+    // クラウドの2FAは Supabase MFA で Step 3 対応予定 — ローカルTOTP UIは隠す
+    mfaItem.style.display = 'none';
+  } else {
+    mfaItem.addEventListener('click', () => {
+      menu.classList.add('hidden');
+      open2FAModal();
+    });
+  }
 }
 
 // ============================================================================
@@ -3310,6 +3499,21 @@ function setupPasswordChange() {
     if (!u) { err.textContent = 'ログイン状態が失われました。再読み込みしてください。'; err.classList.remove('hidden'); return; }
     if (n1 !== n2) { err.textContent = '新しいパスワードが一致しません'; err.classList.remove('hidden'); return; }
     if (n1.length < 8) { err.textContent = '新しいパスワードは8文字以上'; err.classList.remove('hidden'); return; }
+
+    if (isCloudAuthed()) {
+      // クラウド: Supabase Auth で再認証 → 更新
+      const result = await cloudChangePassword(getCloudClient(), cur, n1);
+      if (!result.ok) { err.textContent = result.reason; err.classList.remove('hidden'); return; }
+      await appendAuditLog({
+        actor_user_id: u.id, actor_username: u.username,
+        action: 'password_changed', summary: 'パスワード変更（クラウド）',
+      });
+      form.reset();
+      modal.classList.add('hidden');
+      toast('パスワードを変更しました', 'success');
+      return;
+    }
+
     const ok = await verifyPassword(cur, u.password_salt, u.password_hash);
     if (!ok) { err.textContent = '現在のパスワードが正しくありません'; err.classList.remove('hidden'); return; }
     await changePassword(u.id, n1);
@@ -3325,6 +3529,11 @@ function setupPasswordChange() {
 
 function setupUserManagement() {
   if (!canManageUsers(getCurrentUser())) return;
+  if (isCloudAuthed()) {
+    // クラウドモード: profiles テーブルのロール編集UI
+    setupCloudUserManagement();
+    return;
+  }
   document.getElementById('btn-new-user').addEventListener('click', () => openUserEditor(null));
   const form = document.getElementById('form-user');
   form.addEventListener('submit', async (e) => {
@@ -3486,6 +3695,89 @@ function renderUsersTable() {
       await unlockUser(Number(btn.dataset.unlockUser));
       renderUsersTable();
       toast('ロックを解除しました', 'success');
+    });
+  });
+}
+
+// ============================================================================
+// クラウドユーザー管理 — Supabase profiles のロール編集
+// （ユーザーの新規追加/削除は Supabase ダッシュボードで実施。Step 3 で招待
+//   フローをアプリ内に実装予定）
+// ============================================================================
+
+function setupCloudUserManagement() {
+  // ローカル用フォーム・新規ボタンは隠し、案内を出す
+  const newBtn = document.getElementById('btn-new-user');
+  if (newBtn) {
+    newBtn.style.display = 'none';
+    const hint = document.createElement('span');
+    hint.className = 'hint';
+    hint.innerHTML = '☁️ クラウドモード: ユーザーの<strong>追加</strong>は Supabase ダッシュボード（Authentication → Add user）で行ってください。ここでは<strong>ロール変更と有効/無効</strong>を管理できます。';
+    newBtn.parentElement?.insertBefore(hint, newBtn);
+  }
+  document.getElementById('user-editor')?.classList.add('hidden');
+  renderCloudUsersTable();
+}
+
+function renderCloudUsersTable() {
+  const tbody = document.querySelector('#table-users tbody');
+  if (!tbody) return;
+  const profiles = getProfilesCache();
+  const me = getCurrentUser();
+  if (!profiles.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#9ca3af;padding:20px">プロファイルが読み込めませんでした</td></tr>';
+    return;
+  }
+  const roleOptions = (current) => ['admin', 'editor', 'viewer', 'buyer', 'ap_holder']
+    .map(r => `<option value="${r}" ${r === current ? 'selected' : ''}>${roleLabel(r) || r}</option>`).join('');
+  tbody.innerHTML = profiles.map(p => `
+    <tr>
+      <td><strong>${escapeHtml(p.username || '')}</strong>${p.id === me?.id ? ' <span class="badge badge--blue">自分</span>' : ''}</td>
+      <td>${escapeHtml(p.display_name || '')}</td>
+      <td>
+        <select data-cloud-role="${p.id}" style="max-width:140px" ${p.id === me?.id ? 'disabled title="自分のロールは変更できません"' : ''}>
+          ${roleOptions(p.role)}
+        </select>
+      </td>
+      <td>${p.is_active ? '<span class="badge badge--green">有効</span>' : '<span class="badge badge--red">無効</span>'}</td>
+      <td style="font-size:11px;color:#6b7280">—</td>
+      <td style="font-size:11px;color:#6b7280">${p.created_at ? new Date(p.created_at).toLocaleDateString('ja-JP') : ''}</td>
+      <td>
+        ${p.id === me?.id ? '' : `<button class="btn" data-cloud-toggle-active="${p.id}">${p.is_active ? '無効化' : '有効化'}</button>`}
+      </td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('[data-cloud-role]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const id = sel.dataset.cloudRole;
+      try {
+        await updateProfile(id, { role: sel.value });
+        const u = getCurrentUser();
+        await appendAuditLog({
+          actor_user_id: u.id, actor_username: u.username,
+          action: 'user_update', summary: `ロール変更: ${id.slice(0, 8)}… → ${sel.value}`,
+        });
+        toast('ロールを更新しました', 'success');
+        renderCloudUsersTable();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  });
+  tbody.querySelectorAll('[data-cloud-toggle-active]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.cloudToggleActive;
+      const p = getProfilesCache().find(x => x.id === id);
+      if (!p) return;
+      if (!confirm(`${p.username} を${p.is_active ? '無効化' : '有効化'}しますか？`)) return;
+      try {
+        await updateProfile(id, { is_active: !p.is_active });
+        toast('更新しました', 'success');
+        renderCloudUsersTable();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
     });
   });
 }
@@ -5223,6 +5515,12 @@ function setupCloudMigration() {
   const testBtn    = document.getElementById('btn-cloud-test');
   if (!testBtn || testBtn.dataset.wired) return;
   testBtn.dataset.wired = 'true';
+
+  // すでにクラウドモードで動作中なら移行タブは不要 — 非表示にする
+  if (isCloudAuthed()) {
+    document.querySelector('[data-settings-tab="cloud"]')?.classList.add('hidden');
+    return;
+  }
 
   const migrateBtn = document.getElementById('btn-cloud-migrate');
   const verifyBtn  = document.getElementById('btn-cloud-verify');

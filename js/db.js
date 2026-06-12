@@ -2,7 +2,18 @@
 // SQLite (sql.js) wrapper with IndexedDB persistence.
 // Single source of truth for schema + CRUD. The raw DB is a Uint8Array
 // that can also be exported/imported as a .sqlite file.
+//
+// クラウドモード (Step 2):
+//   isCloudActive() が true のとき、書き込みは Supabase が正
+//   （ライトスルー）。ローカル sql.js はメモリ内の読み取りミラーとなり、
+//   IndexedDB への永続化は行わない。読み取り関数は無変更で動く。
 // ============================================================================
+
+import {
+  isCloudActive,
+  cloudInsert, cloudUpdate, cloudDelete, cloudDeleteWhere,
+  cloudUpsert, cloudUpdateWhere, cloudAppendAudit,
+} from './cloud-db.js';
 
 // IndexedDB layout (v2):
 //   store 'sqlite':
@@ -410,6 +421,21 @@ export function getDek() { return currentDek; }
  * On first run: creates plain DB. On an upgrade from legacy (unencrypted) DB
  * the plain DB is loaded so auth.js can later encrypt it atomically.
  */
+// クラウドモード: メモリ内ミラー専用の空DBを作る。
+// IndexedDB の読み書き・シード・バックフィルは一切行わない
+// （データの正は Supabase、ログイン後 pullAllToMirror で展開）。
+let cloudShellMode = false;
+
+export async function initDBShell() {
+  if (db) return db;
+  SQL = await initSqlJs({ locateFile: file => `vendor/${file}` });
+  db = new SQL.Database();
+  db.exec(SCHEMA);
+  migrate();
+  cloudShellMode = true;
+  return db;
+}
+
 export async function initDB() {
   if (db) return db;
   SQL = await initSqlJs({ locateFile: file => `vendor/${file}` });
@@ -578,6 +604,8 @@ function seedDefaultVehicleModel() {
 
 export async function persist() {
   if (!db) return;
+  // クラウドモード: ミラーは揮発でよい（正は Supabase）。IndexedDBに書かない。
+  if (cloudShellMode || isCloudActive()) return;
   const bytes = db.export();
   if (currentDek) {
     const { encryptWithDek } = await import('./crypto.js');
@@ -622,6 +650,64 @@ export function lastInsertId() {
   return db.exec('SELECT last_insert_rowid() AS id')[0].values[0][0];
 }
 
+// ---------------------------------------------------------------------------
+// クラウド対応の汎用ヘルパー
+//   saveRecord:   UPDATE(idあり) / INSERT(idなし)。クラウドモードでは
+//                 Supabase 採番のIDを使い、ミラーに反映して返す。
+//   deleteRecord: 両モードの削除。
+//   mirrorInsertRow: クラウドから返った行をローカルミラーに書き込む。
+// ---------------------------------------------------------------------------
+
+function mirrorInsertRow(table, row) {
+  const cols = Object.keys(row).filter(c => c !== 'storage_path' && c !== 'actor_uuid');
+  const ph = cols.map(() => '?').join(',');
+  run(
+    `INSERT OR REPLACE INTO ${table} (${cols.join(',')}) VALUES (${ph})`,
+    cols.map(c => (row[c] === undefined ? null : row[c]))
+  );
+}
+
+async function saveRecord(table, fields, data) {
+  const obj = {};
+  for (const k of fields) {
+    const v = data[k];
+    obj[k] = (v === '' || v === undefined) ? null : v;
+  }
+  if (isCloudActive()) {
+    if (data.id) {
+      await cloudUpdate(table, data.id, obj);
+      const sets = fields.map(c => `${c}=?`).join(', ');
+      run(`UPDATE ${table} SET ${sets} WHERE id=?`, [...fields.map(k => obj[k]), data.id]);
+      return data.id;
+    }
+    const saved = await cloudInsert(table, obj);
+    mirrorInsertRow(table, saved);
+    return saved.id;
+  }
+  // ローカルモード（従来動作）
+  if (data.id) {
+    const sets = fields.map(c => `${c}=?`).join(', ');
+    run(`UPDATE ${table} SET ${sets} WHERE id=?`, [...fields.map(k => obj[k]), data.id]);
+    await persist();
+    return data.id;
+  }
+  const ph = fields.map(() => '?').join(',');
+  run(`INSERT INTO ${table} (${fields.join(',')}) VALUES (${ph})`, fields.map(k => obj[k]));
+  const id = lastInsertId();
+  await persist();
+  return id;
+}
+
+async function deleteRecord(table, id) {
+  if (isCloudActive()) {
+    await cloudDelete(table, id);
+    run(`DELETE FROM ${table} WHERE id=?`, [id]);
+    return;
+  }
+  run(`DELETE FROM ${table} WHERE id=?`, [id]);
+  await persist();
+}
+
 // ---- Party ----------------------------------------------------------------
 const PARTY_FIELDS = [
   'role','company_name','address','tel','email','attn_name','attn_tel',
@@ -630,25 +716,11 @@ const PARTY_FIELDS = [
 ];
 
 export async function saveParty(data) {
-  const cols = PARTY_FIELDS;
-  const vals = cols.map(k => data[k] ?? null);
-  if (data.id) {
-    const sets = cols.map(c => `${c}=?`).join(', ');
-    run(`UPDATE parties SET ${sets} WHERE id=?`, [...vals, data.id]);
-    await persist();
-    return data.id;
-  } else {
-    const ph = cols.map(() => '?').join(',');
-    run(`INSERT INTO parties (${cols.join(',')}) VALUES (${ph})`, vals);
-    const id = lastInsertId();
-    await persist();
-    return id;
-  }
+  return saveRecord('parties', PARTY_FIELDS, data);
 }
 
 export async function deleteParty(id) {
-  run('DELETE FROM parties WHERE id=?', [id]);
-  await persist();
+  return deleteRecord('parties', id);
 }
 
 export function listParties(role = 'all') {
@@ -667,27 +739,18 @@ const VEHICLE_MODEL_FIELDS = [
 ];
 
 export async function saveVehicleModel(data) {
-  const cols = VEHICLE_MODEL_FIELDS;
-  const vals = cols.map(k => {
-    const v = data[k];
-    if (v === '' || v === undefined) return null;
-    return v;
-  });
-  if (data.id) {
-    const sets = cols.map(c => `${c}=?`).join(', ');
-    run(`UPDATE vehicle_models SET ${sets} WHERE id=?`, [...vals, data.id]);
-    await persist();
-    return data.id;
-  } else {
-    const ph = cols.map(() => '?').join(',');
-    run(`INSERT INTO vehicle_models (${cols.join(',')}) VALUES (${ph})`, vals);
-    const id = lastInsertId();
-    await persist();
-    return id;
-  }
+  return saveRecord('vehicle_models', VEHICLE_MODEL_FIELDS, data);
 }
 
 export async function deleteVehicleModel(id) {
+  if (isCloudActive()) {
+    // 参照を外してから削除（クラウド→ミラーの順）
+    await cloudUpdateWhere('cases', 'vehicle_model_id', id, { vehicle_model_id: null });
+    await cloudDelete('vehicle_models', id);
+    run('UPDATE cases SET vehicle_model_id=NULL WHERE vehicle_model_id=?', [id]);
+    run('DELETE FROM vehicle_models WHERE id=?', [id]);
+    return;
+  }
   run('UPDATE cases SET vehicle_model_id=NULL WHERE vehicle_model_id=?', [id]);
   run('DELETE FROM vehicle_models WHERE id=?', [id]);
   await persist();
@@ -726,27 +789,21 @@ const CASE_FIELDS = [
 ];
 
 export async function saveCase(data) {
-  const cols = CASE_FIELDS;
-  const vals = cols.map(k => {
-    const v = data[k];
-    if (v === '' || v === undefined) return null;
-    return v;
-  });
-  if (data.id) {
-    const sets = cols.map(c => `${c}=?`).join(', ');
-    run(`UPDATE cases SET ${sets} WHERE id=?`, [...vals, data.id]);
-    await persist();
-    return data.id;
-  } else {
-    const ph = cols.map(() => '?').join(',');
-    run(`INSERT INTO cases (${cols.join(',')}) VALUES (${ph})`, vals);
-    const id = lastInsertId();
-    await persist();
-    return id;
-  }
+  return saveRecord('cases', CASE_FIELDS, data);
 }
 
 export async function deleteCase(id) {
+  if (isCloudActive()) {
+    // Postgres 側は ON DELETE CASCADE で子テーブルも消える
+    await cloudDelete('cases', id);
+    for (const t of ['case_documents', 'registration_events', 'payments', 'costs',
+                     'photos', 'doc_issue_log', 'ap_holder_history',
+                     'case_dereg_checklist', 'case_documents_archive']) {
+      run(`DELETE FROM ${t} WHERE case_id=?`, [id]);
+    }
+    run('DELETE FROM cases WHERE id=?', [id]);
+    return;
+  }
   run('DELETE FROM case_documents WHERE case_id=?', [id]);
   run('DELETE FROM cases WHERE id=?', [id]);
   await persist();
@@ -800,6 +857,11 @@ export async function toggleFavorite(caseId) {
   const c = queryOne('SELECT is_favorite FROM cases WHERE id=?', [caseId]);
   if (!c) return false;
   const next = c.is_favorite ? 0 : 1;
+  if (isCloudActive()) {
+    await cloudUpdate('cases', caseId, { is_favorite: next });
+    run('UPDATE cases SET is_favorite=? WHERE id=?', [next, caseId]);
+    return next === 1;
+  }
   run('UPDATE cases SET is_favorite=? WHERE id=?', [next, caseId]);
   await persist();
   return next === 1;
@@ -863,21 +925,11 @@ export function getCase(id) {
 const ARCHIVE_FIELDS = ['case_id','form_key','filename','mime_type','data_url','uploaded_by','note'];
 
 export async function addArchiveDocument(data) {
-  const cols = ARCHIVE_FIELDS;
-  const vals = cols.map(k => {
-    const v = data[k];
-    if (v === '' || v === undefined) return null;
-    return v;
-  });
-  const ph = cols.map(() => '?').join(',');
-  run(`INSERT INTO case_documents_archive (${cols.join(',')}) VALUES (${ph})`, vals);
-  await persist();
-  return lastInsertId();
+  return saveRecord('case_documents_archive', ARCHIVE_FIELDS, { ...data, id: undefined });
 }
 
 export async function deleteArchiveDocument(id) {
-  run('DELETE FROM case_documents_archive WHERE id=?', [id]);
-  await persist();
+  return deleteRecord('case_documents_archive', id);
 }
 
 export function listArchiveDocuments(case_id, form_key = null) {
@@ -911,33 +963,35 @@ export function getDeregItem(case_id, item_key) {
 
 export async function upsertDeregItem(case_id, item_key, { completed = null, note = null } = {}) {
   const existing = getDeregItem(case_id, item_key);
+  // 部分更新セマンティクス: null の引数は既存値を維持
+  const merged = {
+    case_id,
+    item_key,
+    completed: completed !== null
+      ? (completed ? 1 : 0)
+      : (existing?.completed ? 1 : 0),
+    completed_at: completed !== null
+      ? (completed ? new Date().toISOString() : null)
+      : (existing?.completed_at ?? null),
+    note: note !== null ? note : (existing?.note ?? null),
+  };
+
+  if (isCloudActive()) {
+    const saved = await cloudUpsert('case_dereg_checklist', merged, 'case_id,item_key');
+    mirrorInsertRow('case_dereg_checklist', saved);
+    return;
+  }
+
   if (existing) {
-    const patches = [];
-    const params = [];
-    if (completed !== null) {
-      patches.push('completed=?', 'completed_at=?');
-      params.push(completed ? 1 : 0, completed ? new Date().toISOString() : null);
-    }
-    if (note !== null) { patches.push('note=?'); params.push(note); }
-    if (patches.length) {
-      // Above pushed pairs; need to convert to comma-separated SET clauses
-      const setClauses = [];
-      if (completed !== null) setClauses.push('completed=?', 'completed_at=?');
-      if (note !== null) setClauses.push('note=?');
-      run(`UPDATE case_dereg_checklist SET ${setClauses.join(', ')} WHERE id=?`,
-          [...params, existing.id]);
-    }
+    run(
+      'UPDATE case_dereg_checklist SET completed=?, completed_at=?, note=? WHERE id=?',
+      [merged.completed, merged.completed_at, merged.note, existing.id]
+    );
   } else {
     run(
       `INSERT INTO case_dereg_checklist (case_id, item_key, completed, completed_at, note)
        VALUES (?, ?, ?, ?, ?)`,
-      [
-        case_id,
-        item_key,
-        completed === true || completed === 1 ? 1 : 0,
-        completed === true || completed === 1 ? new Date().toISOString() : null,
-        note,
-      ]
+      [case_id, item_key, merged.completed, merged.completed_at, merged.note]
     );
   }
   await persist();
@@ -946,10 +1000,22 @@ export async function upsertDeregItem(case_id, item_key, { completed = null, not
 // ---- AP Holder history (audit trail of who held the AP) -----------------
 export async function appendApHolderHistory(case_id, oldId, newId, changedBy = '', note = '') {
   if (oldId === newId) return; // no-op
+  const row = {
+    case_id,
+    old_ap_holder_id: oldId ?? null,
+    new_ap_holder_id: newId ?? null,
+    changed_by: changedBy || null,
+    note: note || null,
+  };
+  if (isCloudActive()) {
+    const saved = await cloudInsert('ap_holder_history', row);
+    mirrorInsertRow('ap_holder_history', saved);
+    return;
+  }
   run(
     `INSERT INTO ap_holder_history (case_id, old_ap_holder_id, new_ap_holder_id, changed_by, note)
      VALUES (?, ?, ?, ?, ?)`,
-    [case_id, oldId ?? null, newId ?? null, changedBy || null, note || null]
+    [row.case_id, row.old_ap_holder_id, row.new_ap_holder_id, row.changed_by, row.note]
   );
   await persist();
 }
@@ -984,15 +1050,21 @@ const DOC_FIELDS = [
 ];
 
 export async function saveCaseDoc(data) {
+  const obj = {};
+  for (const k of DOC_FIELDS) {
+    const v = data[k];
+    obj[k] = (v === '' || v === undefined) ? null : v;
+  }
+  if (isCloudActive()) {
+    const saved = await cloudUpsert('case_documents', obj, 'case_id,doc_type');
+    mirrorInsertRow('case_documents', saved);
+    return;
+  }
   const existing = queryOne(
     'SELECT id FROM case_documents WHERE case_id=? AND doc_type=?',
     [data.case_id, data.doc_type],
   );
-  const vals = DOC_FIELDS.map(k => {
-    const v = data[k];
-    if (v === '' || v === undefined) return null;
-    return v;
-  });
+  const vals = DOC_FIELDS.map(k => obj[k]);
   if (existing) {
     const sets = DOC_FIELDS.map(c => `${c}=?`).join(', ');
     run(`UPDATE case_documents SET ${sets} WHERE id=?`, [...vals, existing.id]);
@@ -1019,29 +1091,17 @@ export function listCaseDocs(case_id) {
 const PAYMENT_FIELDS = ['case_id','payment_date','amount_jpy','method','reference_no','note'];
 
 export async function savePayment(data) {
-  const cols = PAYMENT_FIELDS;
-  const vals = cols.map(k => {
-    const v = data[k];
-    if (v === '' || v === undefined) return null;
-    return v;
-  });
-  if (data.id) {
-    const sets = cols.map(c => `${c}=?`).join(', ');
-    run(`UPDATE payments SET ${sets} WHERE id=?`, [...vals, data.id]);
-  } else {
-    const ph = cols.map(() => '?').join(',');
-    run(`INSERT INTO payments (${cols.join(',')}) VALUES (${ph})`, vals);
-  }
+  const id = await saveRecord('payments', PAYMENT_FIELDS, data);
   await syncPaymentStatus(data.case_id);
-  await persist();
-  return data.id || lastInsertId();
+  if (!isCloudActive()) await persist();
+  return id;
 }
 
 export async function deletePayment(id) {
   const row = queryOne('SELECT case_id FROM payments WHERE id=?', [id]);
-  run('DELETE FROM payments WHERE id=?', [id]);
+  await deleteRecord('payments', id);
   if (row) await syncPaymentStatus(row.case_id);
-  await persist();
+  if (!isCloudActive()) await persist();
 }
 
 export function listPayments(case_id) {
@@ -1067,8 +1127,12 @@ async function syncPaymentStatus(case_id) {
   else if (due > 0 && paid >= due) next = 'paid';
   else next = 'partial';
   if (next !== c.payment_status) {
+    const ts = new Date().toISOString();
+    if (isCloudActive()) {
+      await cloudUpdate('cases', case_id, { payment_status: next, status_updated_at: ts });
+    }
     run('UPDATE cases SET payment_status=?, status_updated_at=? WHERE id=?',
-        [next, new Date().toISOString(), case_id]);
+        [next, ts, case_id]);
   }
 }
 
@@ -1076,34 +1140,31 @@ async function syncPaymentStatus(case_id) {
 const PHOTO_FIELDS = ['case_id','filename','mime_type','data_url','caption','sort_order'];
 
 export async function savePhoto(data) {
-  const cols = PHOTO_FIELDS;
-  const vals = cols.map(k => {
-    const v = data[k];
-    if (v === '' || v === undefined) return null;
-    return v;
-  });
-  if (data.id) {
-    const sets = cols.map(c => `${c}=?`).join(', ');
-    run(`UPDATE photos SET ${sets} WHERE id=?`, [...vals, data.id]);
-  } else {
-    const ph = cols.map(() => '?').join(',');
-    run(`INSERT INTO photos (${cols.join(',')}) VALUES (${ph})`, vals);
-  }
-  await persist();
-  return data.id || lastInsertId();
+  return saveRecord('photos', PHOTO_FIELDS, data);
 }
 
 export async function deletePhoto(id) {
-  run('DELETE FROM photos WHERE id=?', [id]);
-  await persist();
+  return deleteRecord('photos', id);
 }
 
 export async function updatePhotoCaption(id, caption) {
+  if (isCloudActive()) {
+    await cloudUpdate('photos', id, { caption });
+    run('UPDATE photos SET caption=? WHERE id=?', [caption, id]);
+    return;
+  }
   run('UPDATE photos SET caption=? WHERE id=?', [caption, id]);
   await persist();
 }
 
 export async function updatePhotoOrder(orderedIds) {
+  if (isCloudActive()) {
+    for (let i = 0; i < orderedIds.length; i++) {
+      await cloudUpdate('photos', orderedIds[i], { sort_order: i });
+      run('UPDATE photos SET sort_order=? WHERE id=?', [i, orderedIds[i]]);
+    }
+    return;
+  }
   for (let i = 0; i < orderedIds.length; i++) {
     run('UPDATE photos SET sort_order=? WHERE id=?', [i, orderedIds[i]]);
   }
@@ -1123,26 +1184,11 @@ export function listPhotosSummary(case_id) {
 const COST_FIELDS = ['case_id','cost_type','amount_jpy','vendor','cost_date','note'];
 
 export async function saveCost(data) {
-  const cols = COST_FIELDS;
-  const vals = cols.map(k => {
-    const v = data[k];
-    if (v === '' || v === undefined) return null;
-    return v;
-  });
-  if (data.id) {
-    const sets = cols.map(c => `${c}=?`).join(', ');
-    run(`UPDATE costs SET ${sets} WHERE id=?`, [...vals, data.id]);
-  } else {
-    const ph = cols.map(() => '?').join(',');
-    run(`INSERT INTO costs (${cols.join(',')}) VALUES (${ph})`, vals);
-  }
-  await persist();
-  return data.id || lastInsertId();
+  return saveRecord('costs', COST_FIELDS, data);
 }
 
 export async function deleteCost(id) {
-  run('DELETE FROM costs WHERE id=?', [id]);
-  await persist();
+  return deleteRecord('costs', id);
 }
 
 export function listCosts(case_id) {
@@ -1160,8 +1206,15 @@ export async function logDocIssued(case_id, doc_type, issued_by = '') {
     'SELECT MAX(version) AS v FROM doc_issue_log WHERE case_id=? AND doc_type=?',
     [case_id, doc_type]);
   const version = (last?.v || 0) + 1;
+  const issued_at = new Date().toISOString();
+  if (isCloudActive()) {
+    const saved = await cloudInsert('doc_issue_log',
+      { case_id, doc_type, version, issued_by, issued_at });
+    mirrorInsertRow('doc_issue_log', saved);
+    return version;
+  }
   run(`INSERT INTO doc_issue_log (case_id, doc_type, version, issued_by, issued_at) VALUES (?, ?, ?, ?, ?)`,
-      [case_id, doc_type, version, issued_by, new Date().toISOString()]);
+      [case_id, doc_type, version, issued_by, issued_at]);
   await persist();
   return version;
 }
@@ -1178,6 +1231,22 @@ const EVENT_FIELDS = [
 ];
 
 export async function replaceCaseEvents(case_id, events) {
+  if (isCloudActive()) {
+    await cloudDeleteWhere('registration_events', 'case_id', case_id);
+    run('DELETE FROM registration_events WHERE case_id=?', [case_id]);
+    for (let i = 0; i < events.length; i++) {
+      const e = events[i];
+      const row = { case_id, sort_order: i };
+      for (const k of EVENT_FIELDS) {
+        if (k === 'case_id' || k === 'sort_order') continue;
+        const v = e[k];
+        row[k] = (v === '' || v === undefined) ? null : v;
+      }
+      const saved = await cloudInsert('registration_events', row);
+      mirrorInsertRow('registration_events', saved);
+    }
+    return;
+  }
   run('DELETE FROM registration_events WHERE case_id=?', [case_id]);
   for (let i = 0; i < events.length; i++) {
     const e = events[i];
@@ -1255,10 +1324,12 @@ export function usersCount() {
 
 // ---- Audit log ------------------------------------------------------------
 export async function appendAuditLog(entry) {
+  // ローカルミラーには常に書く（監査ログビューアの表示用）
   run(
     `INSERT INTO audit_log (actor_user_id, actor_username, action, target_type, target_id, summary)
      VALUES (?, ?, ?, ?, ?, ?)`,
     [
+      // UUID(クラウド)は actor_user_id 列に文字列としてそのまま入る（SQLiteは動的型）
       entry.actor_user_id ?? null,
       entry.actor_username ?? null,
       entry.action ?? null,
@@ -1267,6 +1338,19 @@ export async function appendAuditLog(entry) {
       entry.summary ?? null,
     ]
   );
+  if (isCloudActive()) {
+    // クラウドへは actor_uuid として記録（fire-and-forget、失敗は警告のみ）
+    const isUuid = typeof entry.actor_user_id === 'string' && entry.actor_user_id.includes('-');
+    await cloudAppendAudit({
+      actor_uuid: isUuid ? entry.actor_user_id : null,
+      actor_username: entry.actor_username,
+      action: entry.action,
+      target_type: entry.target_type,
+      target_id: entry.target_id,
+      summary: entry.summary,
+    });
+    return;
+  }
   await persist();
 }
 
@@ -1289,6 +1373,11 @@ export function getSetting(key, defaultValue = null) {
 
 export async function setSetting(key, value) {
   const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+  if (isCloudActive()) {
+    await cloudUpsert('settings', { key, value: serialized }, 'key');
+    run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, serialized]);
+    return;
+  }
   const existing = queryOne('SELECT key FROM settings WHERE key=?', [key]);
   if (existing) {
     run('UPDATE settings SET value=? WHERE key=?', [serialized, key]);

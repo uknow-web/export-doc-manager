@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=32">
-<link rel="stylesheet" href="css/documents.css?v=32">
+<link rel="stylesheet" href="css/app.css?v=33">
+<link rel="stylesheet" href="css/documents.css?v=33">
 </head>
 <body>
 
@@ -45,6 +45,14 @@
       <button type="submit" class="btn btn--primary" style="width:100%">管理者アカウントを作成</button>
     </form>
 
+    <!-- クラウド接続の初回設定（anonキー未設定時のみ表示） -->
+    <div id="cloud-connect-setup" class="auth-form hidden">
+      <p class="hint">Supabase への接続情報を入力してください（初回のみ）。<br>anon キーは Supabase の Project Settings → API Keys にあります。</p>
+      <label>Supabase URL <input id="cc-url" placeholder="https://xxxx.supabase.co"></label>
+      <label>Anon Key（公開キー） <input id="cc-anon-key" type="password" placeholder="eyJhbGciOi... / sb_publishable_..."></label>
+      <button type="button" id="btn-cc-save" class="btn btn--primary" style="width:100%">保存して再読み込み</button>
+    </div>
+
     <div class="auth-panel__footer">
       <small>このシステムはセキュアモードで動作しています</small>
       <div style="margin-top:12px">
@@ -61,6 +69,9 @@
 <header class="app-header">
   <h1>Export Document Management System</h1>
   <div class="app-header__actions">
+    <button id="btn-cloud-refresh" class="btn btn--ghost hidden" type="button" title="クラウドから最新データを再読込">
+      🔄 再読込
+    </button>
     <button id="btn-open-cmdk" class="btn btn--ghost" type="button" title="コマンドパレット">
       🔍 <span style="opacity:.7;font-size:11px;margin-left:4px">⌘K</span>
     </button>

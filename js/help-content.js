@@ -1285,6 +1285,53 @@ HSコードは案件側で個別設定できますが、参考として:</p>
     `,
   },
   {
+    id: 'cloud-mode',
+    title: 'クラウドモード（Supabase運用）',
+    content: `
+<h1>クラウドモード（Supabase運用）</h1>
+<p>Step 2 以降、アプリは <strong>Supabase Postgres をデータの正</strong>として動作します。データはクラウドに保存され、複数のPC・ブラウザから同じデータにアクセスできます。</p>
+
+<h2>ローカルモードとの違い</h2>
+<table>
+  <tr><th>項目</th><th>ローカルモード（旧）</th><th>クラウドモード（現行）</th></tr>
+  <tr><td>データ保存先</td><td>ブラウザ内 IndexedDB</td><td>Supabase Postgres（東京）</td></tr>
+  <tr><td>ログイン</td><td>アプリ内ユーザー（PBKDF2）</td><td>Supabase Auth（メール+パスワード）</td></tr>
+  <tr><td>複数端末</td><td>不可（手動エクスポート/インポート）</td><td>可能（同じアカウントでどこからでも）</td></tr>
+  <tr><td>データ消失リスク</td><td>ブラウザ消去で全損</td><td>クラウド保存で保護</td></tr>
+  <tr><td>オフライン動作</td><td>可</td><td>不可（ネット必須）</td></tr>
+</table>
+
+<h2>仕組み（読み取りミラー方式）</h2>
+<ol>
+  <li>ログイン時に全データを Supabase から取得し、メモリ内にミラーを構築</li>
+  <li>画面の表示・検索はミラーから瞬時に行われる（高速）</li>
+  <li>保存・削除は「Supabase に書く → 成功したらミラー更新」のライトスルー</li>
+  <li>他の人の変更はログイン時、またはヘッダーの「🔄 再読込」で反映</li>
+</ol>
+
+<h2>初回接続設定</h2>
+<p>新しいブラウザで初めて開くと「クラウド接続設定」画面が出ます。Supabase の <strong>anon キー</strong>（Project Settings → API Keys）を一度入力すれば、以後そのブラウザでは不要です。</p>
+
+<h2>ユーザー管理（クラウド）</h2>
+<ul>
+  <li><strong>追加</strong>: Supabase ダッシュボード → Authentication → Add user（Auto Confirm にチェック）</li>
+  <li><strong>ロール変更・有効/無効</strong>: アプリの 設定 → ユーザー管理 から</li>
+  <li>ロール: admin / editor / viewer（スタッフ）、buyer / ap_holder（ポータル用・Step 3）</li>
+</ul>
+
+<h2>知っておくこと</h2>
+<ul>
+  <li>パスワード変更はヘッダーのユーザーメニューから（Supabase Auth 経由）</li>
+  <li>2段階認証は Step 3 で Supabase MFA に統合予定（旧ローカルTOTPは非表示）</li>
+  <li>DBエクスポートは「現在のミラーのスナップショット」として引き続き利用可能</li>
+  <li>DBインポートはクラウドモードでは無効（正はSupabaseのため）</li>
+  <li>緊急時にローカルモードで起動したい場合は URL に <code>?local=1</code> を付ける</li>
+</ul>
+
+<blockquote>⚠️ 同じ案件を2人が同時に編集すると後から保存した方が有効になります（行単位の後勝ち）。編集の分担にご注意ください。リアルタイム同期は Step 3 で検討します。</blockquote>
+    `,
+  },
+  {
     id: 'cloud-migration',
     title: 'クラウド移行（Supabase）',
     content: `
