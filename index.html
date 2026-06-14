@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=33">
-<link rel="stylesheet" href="css/documents.css?v=33">
+<link rel="stylesheet" href="css/app.css?v=34">
+<link rel="stylesheet" href="css/documents.css?v=34">
 </head>
 <body>
 
@@ -43,6 +43,15 @@
       <label>パスワード（確認） <input name="password2" type="password" autocomplete="new-password" required minlength="8"></label>
       <div id="auth-setup-error" class="auth-error hidden"></div>
       <button type="submit" class="btn btn--primary" style="width:100%">管理者アカウントを作成</button>
+    </form>
+
+    <!-- 招待リンク着地: 初回パスワード設定（Buyer/AP Holder向け） -->
+    <form id="auth-setpassword-form" class="auth-form hidden">
+      <p class="hint" id="setpw-intro">ようこそ。ポータルにアクセスするためのパスワードを設定してください。</p>
+      <label>パスワード（8文字以上） <input name="newpw1" type="password" autocomplete="new-password" required minlength="8" autofocus></label>
+      <label>パスワード（確認） <input name="newpw2" type="password" autocomplete="new-password" required minlength="8"></label>
+      <div id="auth-setpw-error" class="auth-error hidden"></div>
+      <button type="submit" class="btn btn--primary" style="width:100%">パスワードを設定してログイン</button>
     </form>
 
     <!-- クラウド接続の初回設定（anonキー未設定時のみ表示） -->

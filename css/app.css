@@ -2705,6 +2705,12 @@ body[data-role="viewer"] .mask-amount {
   user-select: none;
 }
 
+/* ポータルユーザーモード（外部のBuyer/AP Holderが自分でログイン） */
+body.portal-user-mode .app-tabs { display: none; }
+body.portal-user-mode .app-main { padding-top: 16px; }
+/* 管理者用のプレビューバナーやBuyer選択UIは隠す */
+body.portal-user-mode .portal-admin-banner { display: none !important; }
+
 /* ========== Case editor sub-tabs ========== */
 .editor-tabs {
   display: flex;

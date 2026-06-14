@@ -1285,6 +1285,39 @@ HSコードは案件側で個別設定できますが、参考として:</p>
     `,
   },
   {
+    id: 'portal-invite',
+    title: 'ポータル招待（Buyer / AP Holder）',
+    content: `
+<h1>ポータル招待（Buyer / AP Holder）</h1>
+<p>外部の Buyer / AP Holder が自分のメール+パスワードでログインし、<strong>自社に関係する案件だけ</strong>を閲覧できるポータルです（クラウドモード時のみ）。</p>
+
+<h2>招待の流れ</h2>
+<ol>
+  <li>管理者が「Seller / Buyer 管理」で対象の Buyer / AP Holder の行の <strong>「📧 ポータル招待」</strong>ボタンを押す</li>
+  <li>相手のメールアドレスを入力 → Supabase から招待メールが自動送信される</li>
+  <li>相手がメール内リンクをクリック → パスワード設定画面</li>
+  <li>パスワード設定後、自動的に自分専用ポータルにログイン</li>
+</ol>
+
+<h2>ポータルで見えるもの（自動制御）</h2>
+<table>
+  <tr><th>ロール</th><th>閲覧できる案件</th></tr>
+  <tr><td>Buyer</td><td>自分が主取引先 or 書類のBuyerになっている案件のみ</td></tr>
+  <tr><td>AP Holder</td><td>自分がAP保有者（案件/書類/履歴）の案件のみ</td></tr>
+</table>
+<p>原価情報・他社の案件・社内の管理画面は<strong>一切見えません</strong>。これはサーバー側（Supabase RLS）で強制されるため、URLを直接叩いても突破できません。</p>
+
+<h2>事前設定（管理者・初回のみ）</h2>
+<p><code>supabase/README.md</code> の「Step 3」を参照。要点:</p>
+<ul>
+  <li>Vercel 環境変数に <code>SUPABASE_SERVICE_ROLE_KEY</code> 等を設定</li>
+  <li>Supabase の Authentication → Redirect URLs に <code>/set-password</code> を追加</li>
+</ul>
+
+<blockquote>💡 ログイン画面は管理者もポータルユーザーも共通です。ログイン後、ロールに応じて自動的に管理画面 or ポータルに振り分けられます。</blockquote>
+    `,
+  },
+  {
     id: 'cloud-mode',
     title: 'クラウドモード（Supabase運用）',
     content: `

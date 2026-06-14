@@ -204,6 +204,14 @@ async function requireAuthentication() {
   // ===== クラウドモード: Supabase Auth =====
   const cloudCfg = getCloudConfig();
   if (cloudCfg.mode === 'cloud' || cloudCfg.mode === 'cloud-setup') {
+    // 招待 / パスワードリカバリのリンク着地を最優先で処理
+    // Supabase は #access_token=...&type=invite|recovery のハッシュで戻す
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const linkType = hash.get('type');
+    if (cloudCfg.mode === 'cloud' && (linkType === 'invite' || linkType === 'recovery' || path === '/set-password')) {
+      await runSetPasswordFlow(overlay, hash);
+      return;
+    }
     await requireCloudAuthentication(overlay, cloudCfg, path, returnTo);
     return;
   }
@@ -367,6 +375,86 @@ function runCloudConnectionSetup(overlay, cfg) {
   });
 }
 
+/**
+ * 招待リンク / パスワードリカバリリンクの着地点。
+ * Supabase が #access_token & #refresh_token をハッシュで渡してくるので、
+ * setSession でセッションを確立 → 新パスワードを設定 → ポータルへ。
+ */
+function runSetPasswordFlow(overlay, hash) {
+  return new Promise(async (resolve) => {
+    overlay.classList.remove('hidden');
+    document.getElementById('auth-subtitle').textContent = 'パスワード設定';
+    // 他フォームを隠す
+    ['auth-login-form', 'auth-setup-form', 'cloud-connect-setup'].forEach(id =>
+      document.getElementById(id)?.classList.add('hidden'));
+    document.getElementById('auth-totp-form')?.classList.add('hidden');
+    const form = document.getElementById('auth-setpassword-form');
+    const err = document.getElementById('auth-setpw-error');
+    form.classList.remove('hidden');
+
+    const sb = initCloudClient();
+    const accessToken = hash.get('access_token');
+    const refreshToken = hash.get('refresh_token');
+
+    // ハッシュからセッションを確立
+    let sessionOk = false;
+    if (accessToken && refreshToken) {
+      const { error } = await sb.auth.setSession({
+        access_token: accessToken, refresh_token: refreshToken,
+      });
+      sessionOk = !error;
+    } else {
+      // 既にセッションがある場合（リロード後など）
+      const { data } = await sb.auth.getSession();
+      sessionOk = !!data?.session;
+    }
+
+    if (!sessionOk) {
+      err.textContent = 'リンクが無効か期限切れです。管理者に再招待を依頼してください。';
+      err.classList.remove('hidden');
+      form.querySelector('button[type="submit"]').disabled = true;
+      return;
+    }
+
+    // URLからトークンを消す（履歴に残さない）
+    history.replaceState({}, '', '/set-password');
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      err.classList.add('hidden');
+      const d = new FormData(form);
+      const p1 = String(d.get('newpw1'));
+      const p2 = String(d.get('newpw2'));
+      if (p1 !== p2) { err.textContent = 'パスワードが一致しません'; err.classList.remove('hidden'); return; }
+      if (p1.length < 8) { err.textContent = 'パスワードは8文字以上にしてください'; err.classList.remove('hidden'); return; }
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true; submitBtn.textContent = '設定中…';
+      try {
+        const { error } = await sb.auth.updateUser({ password: p1 });
+        if (error) { err.textContent = '設定失敗: ' + error.message; err.classList.remove('hidden'); return; }
+        // パスワード設定完了 → プロフィール取得してログイン状態を確立
+        const restored = await cloudRestoreSession(sb);
+        if (!restored) {
+          // セッションは生きているはずだが念のためログイン画面へ
+          window.location.href = '/login';
+          return;
+        }
+        await activateCloudData(sb);
+        applyRoleToBody();
+        overlay.classList.add('hidden');
+        history.replaceState({}, '', '/');
+        toast('パスワードを設定しました。ようこそ！', 'success');
+        resolve();
+      } catch (e2) {
+        err.textContent = 'エラー: ' + e2.message;
+        err.classList.remove('hidden');
+      } finally {
+        submitBtn.disabled = false; submitBtn.textContent = 'パスワードを設定してログイン';
+      }
+    };
+  });
+}
+
 function runInitialSetup(overlay) {
   return new Promise((resolve) => {
     overlay.classList.remove('hidden');
@@ -499,17 +587,57 @@ function setupAuthRouting() {
 }
 
 function applyRoleToBody() {
-  document.body.dataset.role = currentRole();
+  const role = currentRole();
+  document.body.dataset.role = role;
   const u = getCurrentUser();
   if (u) {
     document.getElementById('current-user-label').textContent = u.display_name || u.username;
     const roleBadge = document.getElementById('current-user-role');
     roleBadge.textContent = roleLabel(u.role);
     roleBadge.className = 'badge badge--' + (
-      u.role === 'admin' ? 'indigo' : u.role === 'editor' ? 'blue' : 'gray'
+      u.role === 'admin' ? 'indigo' : u.role === 'editor' ? 'blue'
+        : u.role === 'buyer' ? 'teal' : u.role === 'ap_holder' ? 'amber' : 'gray'
     );
     document.getElementById('user-menu-name').textContent = u.display_name || u.username;
     document.getElementById('user-menu-username').textContent = `@${u.username}`;
+  }
+  // ポータルロール（buyer / ap_holder）は専用モードに切り替え
+  if (role === 'buyer' || role === 'ap_holder') {
+    document.body.classList.add('portal-user-mode');
+    activatePortalUserView(u);
+  }
+}
+
+// ポータルユーザー（外部のBuyer/AP Holder）が自分でログインしたときの専用ビュー。
+// 管理タブを全て隠し、自分のparty向けポータルだけを全幅表示する。
+function activatePortalUserView(u) {
+  if (!u || !u.party_id) {
+    // party 紐付けが無い場合はエラー表示
+    document.querySelector('.app-main')?.insertAdjacentHTML('afterbegin',
+      '<div class="panel" style="margin:20px;color:#dc2626">アカウントに取引先情報が紐付いていません。管理者にお問い合わせください。</div>');
+    return;
+  }
+  // 管理用タブを全て非表示、ポータルだけ表示
+  document.querySelectorAll('.app-tabs .tab').forEach(t => { t.style.display = 'none'; });
+  // ヘッダーの管理ボタン類を隠す
+  ['btn-export-db', 'btn-import-db-label', 'btn-cloud-refresh', 'btn-open-cmdk'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  // 自分のポータルを描画して表示
+  const isBuyer = u.role === 'buyer';
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  const paneId = isBuyer ? 'tab-buyer-portal' : 'tab-ap-portal';
+  const pane = document.getElementById(paneId);
+  if (pane) {
+    pane.classList.add('active');
+    // プレビュー用のセレクタ等（管理者用UI）を隠す
+    pane.querySelector('.portal-admin-banner')?.classList.add('hidden');
+    if (isBuyer) {
+      renderBuyerPortal(u.party_id);
+    } else {
+      renderApPortal(u.party_id);
+    }
   }
 }
 
@@ -690,18 +818,71 @@ function renderParties() {
   const tbody = document.querySelector('#table-parties tbody');
   const roleLabel = { seller: 'Seller', buyer: 'Buyer', notify: 'Notify', ap_holder: 'AP Holder' };
   const roleBadge = { seller: 'indigo', buyer: 'blue', notify: 'teal', ap_holder: 'amber' };
-  tbody.innerHTML = rows.map(p => `
+  // クラウド + admin のときだけ「ポータルに招待」を表示
+  const canInvite = isCloudAuthed() && canManageUsers(getCurrentUser());
+  tbody.innerHTML = rows.map(p => {
+    const invitable = canInvite && (p.role === 'buyer' || p.role === 'ap_holder');
+    return `
     <tr>
       <td><span class="badge badge--${roleBadge[p.role] || 'gray'}">${roleLabel[p.role] || p.role}</span></td>
       <td>${escapeHtml(p.company_name)}</td>
       <td>${escapeHtml(p.address || '')}</td>
       <td>${escapeHtml(p.tel || '')}</td>
-      <td><button class="btn" data-edit-party="${p.id}">編集</button></td>
-    </tr>
-  `).join('');
+      <td>
+        <button class="btn" data-edit-party="${p.id}">編集</button>
+        ${invitable ? `<button class="btn btn--primary" data-invite-party="${p.id}" data-invite-role="${p.role}" title="ポータルへ招待メールを送信">📧 ポータル招待</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
   tbody.querySelectorAll('[data-edit-party]').forEach(btn => {
     btn.addEventListener('click', () => openPartyEditor(Number(btn.dataset.editParty)));
   });
+  tbody.querySelectorAll('[data-invite-party]').forEach(btn => {
+    btn.addEventListener('click', () => openInviteDialog(Number(btn.dataset.inviteParty), btn.dataset.inviteRole));
+  });
+}
+
+// ポータル招待ダイアログ。メールアドレスを入力して /api/invite を呼ぶ。
+async function openInviteDialog(partyId, role) {
+  const p = getParty(partyId);
+  if (!p) return;
+  const roleJa = role === 'buyer' ? 'Buyer' : 'AP Holder';
+  const email = prompt(
+    `「${p.company_name}」を ${roleJa} ポータルに招待します。\n` +
+    `相手のメールアドレスを入力してください（招待メールが送信されます）:`,
+    p.email || ''
+  );
+  if (email == null) return;
+  const trimmed = email.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    toast('メールアドレスが正しくありません', 'error');
+    return;
+  }
+  toast('招待を送信中…', '');
+  try {
+    const sb = getCloudClient();
+    const { data: sess } = await sb.auth.getSession();
+    const token = sess?.session?.access_token;
+    if (!token) { toast('セッションが切れています。再ログインしてください', 'error'); return; }
+    const res = await fetch('/api/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ email: trimmed, role, party_id: partyId, display_name: p.company_name }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      toast('招待失敗: ' + (json.error || res.status), 'error');
+      return;
+    }
+    await appendAuditLog({
+      actor_user_id: getCurrentUser().id, actor_username: getCurrentUser().username,
+      action: 'portal_invite',
+      summary: `${roleJa}招待: ${p.company_name} <${trimmed}>`,
+    });
+    toast(json.message || '招待メールを送信しました', 'success');
+  } catch (e) {
+    toast('招待エラー: ' + e.message, 'error');
+  }
 }
 function openPartyEditor(id) {
   const panel = document.getElementById('party-editor');

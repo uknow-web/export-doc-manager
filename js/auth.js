@@ -146,6 +146,11 @@ export function getCurrentUser() {
 let cloudProfile = null; // { id(uuid), username, display_name, role, party_id, is_active, totp_enabled }
 
 const STAFF_ROLES = ['admin', 'editor', 'viewer'];
+const PORTAL_ROLES = ['buyer', 'ap_holder'];
+const ALL_LOGIN_ROLES = [...STAFF_ROLES, ...PORTAL_ROLES];
+
+export function isPortalRole(role) { return PORTAL_ROLES.includes(role); }
+export function isStaffRole(role) { return STAFF_ROLES.includes(role); }
 
 function mapCloudProfile(p, email) {
   return {
@@ -185,9 +190,9 @@ export async function cloudLogin(sb, email, password) {
     await sb.auth.signOut();
     return { ok: false, reason: 'このアカウントは無効化されています' };
   }
-  if (!STAFF_ROLES.includes(prof.role)) {
+  if (!ALL_LOGIN_ROLES.includes(prof.role)) {
     await sb.auth.signOut();
-    return { ok: false, reason: 'このアカウントは管理画面にアクセスできません（Buyer/APポータルは今後対応）' };
+    return { ok: false, reason: 'このアカウントにはアクセス権がありません。管理者に連絡してください' };
   }
   cloudProfile = mapCloudProfile(prof, data.user.email);
   setSession({
@@ -208,7 +213,7 @@ export async function cloudRestoreSession(sb) {
   const { data } = await sb.auth.getSession();
   if (!data?.session?.user) return null;
   const prof = await fetchOwnProfile(sb, data.session.user.id);
-  if (!prof || !prof.is_active || !STAFF_ROLES.includes(prof.role)) return null;
+  if (!prof || !prof.is_active || !ALL_LOGIN_ROLES.includes(prof.role)) return null;
   cloudProfile = mapCloudProfile(prof, data.session.user.email);
   return cloudProfile;
 }

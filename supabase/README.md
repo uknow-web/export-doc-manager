@@ -89,7 +89,61 @@ Buyer / AP Holder ポータルユーザーは Step 3 で招待フローを実装
 | `relation "xxx" does not exist` | 001_schema.sql の実行が部分的に失敗 → 再実行 |
 | 写真の移行が遅い | 正常です（Base64を1枚ずつ送信）。Step 2 で Storage に移します |
 
-## 次のステップ
+---
 
-- **Step 2**: アプリ本体をクラウドDB読み書きに切替（db.js置換・Supabase Auth・写真Storage化）
-- **Step 3**: Buyer / AP Holder の実ログインポータル + 招待メール
+# Step 3: Buyer / AP Holder ポータルの招待設定
+
+外部の Buyer / AP Holder が自分でログインして自社の案件を閲覧できる
+ポータルです。招待メール送信に **service_role キー** を使うため、
+Vercel 側の環境変数設定が必要です。
+
+## A. Vercel 環境変数を設定
+
+Vercel ダッシュボード → プロジェクト → Settings → Environment Variables に
+以下の3つ（既にあるものは流用可）を追加 → 再デプロイ:
+
+| 変数名 | 値 |
+|---|---|
+| `SUPABASE_URL` | `https://jlqeauvotbnzwlgxklim.supabase.co` |
+| `SUPABASE_ANON_KEY` | anon public キー |
+| `SUPABASE_SERVICE_ROLE_KEY` | **service_role キー**（Project Settings → API Keys。秘密厳守） |
+
+> ⚠️ `SUPABASE_SERVICE_ROLE_KEY` はサーバー側（`/api/invite`）でのみ使われ、
+> ブラウザには絶対に渡りません。アプリの画面には入力しないでください。
+
+## B. Supabase の Redirect URL を許可
+
+Supabase ダッシュボード → Authentication → URL Configuration:
+
+- **Site URL**: `https://export-doc-manager.vercel.app`
+- **Redirect URLs** に追加: `https://export-doc-manager.vercel.app/set-password`
+
+（独自ドメインを使う場合はそのドメインも追加）
+
+## C. 招待メールの文面（任意）
+
+Authentication → Email Templates → 「Invite user」テンプレートを
+日本語に編集できます。リンクは `{{ .ConfirmationURL }}` のままにしてください。
+
+## D. 招待の送り方（アプリ操作）
+
+1. 管理者でログイン → 「Seller / Buyer 管理」
+2. 招待したい Buyer または AP Holder の行の「📧 ポータル招待」ボタン
+3. 相手のメールアドレスを入力 → 送信
+4. 相手に招待メールが届く → リンクをクリック → パスワード設定画面
+5. パスワード設定後、自動的に自分専用ポータルにログイン
+
+## E. ポータルで見えるもの（RLSで自動制御）
+
+- **Buyer**: 自分が primary_buyer または書類のbuyerになっている案件のみ
+- **AP Holder**: 自分が ap_holder（案件 or 書類 or 履歴）の案件のみ
+- 原価・他社の案件・社内管理画面は一切見えません（RLSでサーバー側強制）
+
+## トラブルシューティング（Step 3）
+
+| 症状 | 対処 |
+|---|---|
+| 招待ボタンで `環境変数が未設定` | A の3変数を Vercel に設定 → 再デプロイ |
+| `招待を送れるのは管理者のみ` | ログイン中のアカウントが admin か確認 |
+| リンクを開いて `リンクが無効か期限切れ` | B のRedirect URL未登録、または24時間超過。再招待 |
+| ポータルに案件が出ない | その party が案件の Buyer/AP Holder に設定されているか確認 |
