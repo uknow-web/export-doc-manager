@@ -208,7 +208,9 @@ async function requireAuthentication() {
     // Supabase は #access_token=...&type=invite|recovery のハッシュで戻す
     const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const linkType = hash.get('type');
-    if (cloudCfg.mode === 'cloud' && (linkType === 'invite' || linkType === 'recovery' || path === '/set-password')) {
+    // cloud-setup（anonキー未保存のブラウザ）でも、招待トークン付きなら
+    // 焼き込み既定値でクライアントを作れるため、そのまま処理する
+    if (linkType === 'invite' || linkType === 'recovery' || path === '/set-password') {
       await runSetPasswordFlow(overlay, hash);
       return;
     }

@@ -12,8 +12,10 @@
 // ============================================================================
 
 // デプロイ済みの既定値（このプロジェクト専用）
+// anon キーは Supabase 設計上の「公開キー」— RLS がデータを守るため、
+// コードに焼き込んでも安全（招待されたポータルユーザーが設定なしで使える）
 const BUILT_IN_URL = 'https://jlqeauvotbnzwlgxklim.supabase.co';
-const BUILT_IN_ANON_KEY = ''; // 空の場合はログイン画面で初回入力 → localStorage保存
+const BUILT_IN_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpscWVhdXZvdGJuendsZ3hrbGltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyNDAwNDUsImV4cCI6MjA5NjgxNjA0NX0.7SfLTCB19aipPYjMSQN-nb170YGiIhpxnLKG_qFRN6A';
 
 const LS_URL = 'edm_supabase_url';
 const LS_KEY = 'edm_supabase_anon_key';
