@@ -154,6 +154,17 @@ const DOC_TYPES = [
   renderParties();
   renderVehicleModels();
   refreshPreviewOptions();
+
+  // URLハッシュから前回のタブを復元（リロードで現在地を維持）。
+  // ポータルユーザーは専用ビューのため対象外。招待リンク等のトークン付き
+  // ハッシュは英数字以外を含むため単純名のみ許可。
+  const u0 = getCurrentUser();
+  const initialTab = window.location.hash.replace(/^#/, '');
+  if (initialTab && /^[a-z-]+$/.test(initialTab) &&
+      !['buyer', 'ap_holder'].includes(u0?.role) &&
+      document.querySelector(`.tab[data-tab="${initialTab}"]`)) {
+    switchTab(initialTab);
+  }
 })();
 
 // ============================================================================
@@ -622,7 +633,7 @@ function activatePortalUserView(u) {
   // 管理用タブを全て非表示、ポータルだけ表示
   document.querySelectorAll('.app-tabs .tab').forEach(t => { t.style.display = 'none'; });
   // ヘッダーの管理ボタン類を隠す
-  ['btn-export-db', 'btn-import-db-label', 'btn-cloud-refresh', 'btn-open-cmdk'].forEach(id => {
+  ['btn-export-db', 'btn-import-db-label', 'btn-cloud-refresh', 'btn-open-cmdk', 'btn-csv-menu'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   });
@@ -660,8 +671,19 @@ function setupTabs() {
   });
 }
 function switchTab(name) {
+  // 案件編集から離れるときは未保存変更を確認
+  const leavingEditor = name !== 'editor' &&
+    document.getElementById('tab-editor')?.classList.contains('active');
+  if (leavingEditor && caseFormDirty) {
+    if (!confirm('案件編集に保存されていない変更があります。破棄して移動しますか？')) return;
+    setCaseFormDirty(false);
+  }
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === `tab-${name}`));
+  // 現在地をURLハッシュに反映（リロードしても同じタブに戻れる）
+  if (document.querySelector(`.tab[data-tab="${name}"]`)) {
+    history.replaceState(null, '', '#' + name);
+  }
   if (name === 'cases')       renderCases();
   if (name === 'parties')     renderParties();
   if (name === 'models')      renderVehicleModels();
@@ -1151,8 +1173,42 @@ function renderCases() {
 }
 
 // ---- Case editor ----------------------------------------------------------
+
+// 未保存変更の追跡。ユーザーの手入力（inputイベント）でのみ true になる。
+// プログラムによる fillForm はイベントを発火しないため誤検知しない。
+let caseFormDirty = false;
+function setCaseFormDirty(v) {
+  caseFormDirty = v;
+  document.getElementById('editor-case-banner')?.classList.toggle('is-dirty', v);
+}
+
+// 編集バナー: どの案件を編集中かを常時表示する
+function updateEditorCaseBanner() {
+  const label = document.getElementById('editor-case-banner-label');
+  if (!label) return;
+  const form = document.getElementById('form-case');
+  const id = Number(form.elements.id.value);
+  if (id) {
+    const code = form.elements.case_code.value || `#${id}`;
+    const buyerName = form.elements.primary_buyer_id?.selectedOptions?.[0]?.textContent || '';
+    const showBuyer = buyerName && !['—', '（未設定）', ''].includes(buyerName.trim());
+    label.innerHTML = `✏️ 編集中: <strong>${escapeHtml(code)}</strong>` +
+      (showBuyer ? ` <span style="color:var(--gray-500)">/ ${escapeHtml(buyerName)}</span>` : '');
+  } else {
+    label.textContent = '✏️ 新規案件を作成中';
+  }
+}
+
 function setupEditor() {
   const form = document.getElementById('form-case');
+
+  // 手入力を検知して「未保存の変更あり」を表示
+  form.addEventListener('input', () => setCaseFormDirty(true));
+  // リロード・タブ閉じ時のブラウザ標準警告
+  window.addEventListener('beforeunload', (e) => {
+    if (caseFormDirty) { e.preventDefault(); e.returnValue = ''; }
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!requireEdit()) return;
@@ -1226,8 +1282,13 @@ function setupEditor() {
       });
     }
 
-    toast('案件を保存しました', 'success');
-    switchTab('cases');
+    // 保存後は編集画面に留まる（写真追加・入金登録など連続作業を分断しない）
+    setCaseFormDirty(false);
+    form.elements.id.value = id;
+    document.getElementById('btn-case-delete').classList.remove('hidden');
+    updateEditorCaseBanner();
+    updateEditorTabBadges(id);
+    toast('案件を保存しました（続けて編集できます）', 'success');
     renderCases();
     refreshPreviewOptions();
   });
@@ -1264,6 +1325,7 @@ function setupEditor() {
     const id = Number(form.elements.id.value);
     if (!id) return;
     if (!confirm('この案件を削除しますか？（関連書類も削除されます）')) return;
+    setCaseFormDirty(false);
     const c = getCase(id);
     await deleteCase(id);
     const u = getCurrentUser();
@@ -1480,6 +1542,9 @@ function populateNotifyPartySelect() {
 }
 
 function openCaseEditor(id) {
+  // 別の案件（or新規）を開く前に、編集中の未保存変更を確認
+  if (caseFormDirty && !confirm('保存されていない変更があります。破棄して別の案件を開きますか？')) return;
+  setCaseFormDirty(false);
   switchTab('editor');
   populateSellerSelect();
   populateVehicleModelSelect();
@@ -1559,6 +1624,7 @@ function openCaseEditor(id) {
     renderDeregChecklist(null);
     renderDocArchive(null);
   }
+  updateEditorCaseBanner();
 }
 
 // ---- Preview --------------------------------------------------------------
@@ -6297,6 +6363,8 @@ function toast(message, kind = '') {
   el.textContent = message;
   el.className = 'toast ' + kind;
   el.classList.remove('hidden');
+  el.onclick = () => el.classList.add('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add('hidden'), 2500);
+  // エラーは読む時間を確保するため長めに表示（クリックで即閉じ可能）
+  toastTimer = setTimeout(() => el.classList.add('hidden'), kind === 'error' ? 6000 : 2500);
 }

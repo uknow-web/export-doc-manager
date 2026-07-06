@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Export Document Management System</title>
-<link rel="stylesheet" href="css/app.css?v=34">
-<link rel="stylesheet" href="css/documents.css?v=34">
+<link rel="stylesheet" href="css/app.css?v=35">
+<link rel="stylesheet" href="css/documents.css?v=35">
 </head>
 <body>
 
@@ -101,14 +101,15 @@
       </div>
     </div>
     <button id="btn-help" class="btn btn--ghost" type="button">❓ ヘルプ</button>
-    <button id="btn-export-db" class="btn btn--ghost" type="button">DBエクスポート (.sqlite)</button>
-    <label class="btn btn--ghost">
-      DBインポート
-      <input id="file-import-db" type="file" accept=".sqlite,.db" hidden>
-    </label>
     <div class="menu-wrap">
-      <button id="btn-csv-menu" class="btn btn--ghost" type="button">CSV ▾</button>
+      <button id="btn-csv-menu" class="btn btn--ghost" type="button" aria-haspopup="true">データ ▾</button>
       <div id="csv-menu" class="menu hidden">
+        <button id="btn-export-db">DBエクスポート (.sqlite)</button>
+        <label class="menu-file">
+          DBインポート
+          <input id="file-import-db" type="file" accept=".sqlite,.db" hidden>
+        </label>
+        <hr>
         <button data-csv-export="cases">案件をCSVエクスポート</button>
         <button data-csv-export="parties">Party をCSVエクスポート</button>
         <button data-csv-export="vehicle_models">車両モデルをCSVエクスポート</button>
@@ -152,7 +153,7 @@
   <section id="tab-cases" class="tab-pane active">
     <div class="toolbar">
       <button id="btn-new-case" class="btn btn--primary" type="button">+ 新規案件</button>
-      <input id="search-cases" class="input" type="search" placeholder="案件コード・シャシ番号で検索" style="max-width:280px">
+      <input id="search-cases" class="input" type="search" aria-label="案件検索" placeholder="案件コード・シャシ番号で検索" style="max-width:280px">
       <select id="filter-progress" class="input" style="max-width:200px">
         <option value="all">進捗: すべて</option>
       </select>
@@ -514,6 +515,10 @@
 
   <!-- =========================  CASE EDITOR  ========================= -->
   <section id="tab-editor" class="tab-pane">
+    <div id="editor-case-banner" class="editor-case-banner">
+      <span id="editor-case-banner-label">✏️ 新規案件を作成中</span>
+      <span class="editor-case-banner__dirty">未保存の変更あり</span>
+    </div>
     <form id="form-case" class="panel">
       <input type="hidden" name="id">
 
@@ -1177,10 +1182,10 @@
 
 </main>
 
-<div id="toast" class="toast hidden"></div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite" title="クリックで閉じる"></div>
 
 <!-- Case detail view modal -->
-<div id="detail-modal" class="modal hidden">
+<div id="detail-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-detail-close></div>
   <div class="modal__panel detail-modal">
     <div class="modal__head detail-head">
@@ -1191,7 +1196,7 @@
       <div class="detail-head__actions">
         <button type="button" class="btn" id="btn-detail-print">🖨 印刷</button>
         <button type="button" class="btn btn--primary" id="btn-detail-edit">編集</button>
-        <button type="button" class="modal__close" data-detail-close>×</button>
+        <button type="button" class="modal__close" aria-label="閉じる" data-detail-close>×</button>
       </div>
     </div>
     <div class="detail-body" id="detail-body"></div>
@@ -1199,12 +1204,12 @@
 </div>
 
 <!-- Print-issue validation modal -->
-<div id="validate-modal" class="modal hidden">
+<div id="validate-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-validate-close></div>
   <div class="modal__panel" style="width:min(600px,94vw)">
     <div class="modal__head">
       <h3>⚠️ 発行前チェック</h3>
-      <button type="button" class="modal__close" data-validate-close>×</button>
+      <button type="button" class="modal__close" aria-label="閉じる" data-validate-close>×</button>
     </div>
     <div style="padding:20px">
       <p id="validate-intro" style="margin:0 0 12px;color:#374151"></p>
@@ -1218,7 +1223,7 @@
 </div>
 
 <!-- Command palette (Cmd+K / Ctrl+K) -->
-<div id="cmdk-modal" class="modal hidden">
+<div id="cmdk-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-cmdk-close></div>
   <div class="cmdk-panel">
     <div class="cmdk-search">
@@ -1236,12 +1241,12 @@
 </div>
 
 <!-- 2FA setup modal -->
-<div id="totp-modal" class="modal hidden">
+<div id="totp-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-totp-close></div>
   <div class="modal__panel" style="width:min(520px,94vw)">
     <div class="modal__head">
       <h3>2段階認証（TOTP）設定</h3>
-      <button type="button" class="modal__close" data-totp-close>×</button>
+      <button type="button" class="modal__close" aria-label="閉じる" data-totp-close>×</button>
     </div>
     <div id="totp-status" style="padding:14px 20px;font-size:13px;border-bottom:1px solid #e5e7eb"></div>
     <div id="totp-setup" style="padding:20px">
@@ -1269,12 +1274,12 @@
 </div>
 
 <!-- Password change modal -->
-<div id="password-modal" class="modal hidden">
+<div id="password-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-password-close></div>
   <div class="modal__panel" style="width:min(460px,94vw)">
     <div class="modal__head">
       <h3>パスワード変更</h3>
-      <button type="button" class="modal__close" data-password-close>×</button>
+      <button type="button" class="modal__close" aria-label="閉じる" data-password-close>×</button>
     </div>
     <form id="form-password" style="padding:20px">
       <div class="form-grid" style="grid-template-columns:1fr">
@@ -1292,12 +1297,12 @@
 </div>
 
 <!-- Export/Import password prompt modal -->
-<div id="crypto-modal" class="modal hidden">
+<div id="crypto-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-crypto-close></div>
   <div class="modal__panel" style="width:min(500px,94vw)">
     <div class="modal__head">
       <h3 id="crypto-title">パスワード</h3>
-      <button type="button" class="modal__close" data-crypto-close>×</button>
+      <button type="button" class="modal__close" aria-label="閉じる" data-crypto-close>×</button>
     </div>
     <div style="padding:20px">
       <p id="crypto-intro" style="margin:0 0 12px;color:#374151;font-size:13px"></p>
@@ -1317,14 +1322,14 @@
 </div>
 
 <!-- Portal document preview modal (Buyer / AP Holder side) -->
-<div id="portal-doc-modal" class="modal hidden">
+<div id="portal-doc-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-portal-doc-close></div>
   <div class="modal__panel portal-doc-modal">
     <div class="modal__head">
       <h3 id="portal-doc-title">書類プレビュー</h3>
       <div style="display:flex;gap:8px;align-items:center">
         <button type="button" class="btn btn--primary" id="btn-portal-doc-print">🖨 印刷 / PDF</button>
-        <button type="button" class="modal__close" data-portal-doc-close>×</button>
+        <button type="button" class="modal__close" aria-label="閉じる" data-portal-doc-close>×</button>
       </div>
     </div>
     <div class="portal-doc-body" id="portal-doc-body"></div>
@@ -1336,12 +1341,12 @@
 </div>
 
 <!-- Form sample / template viewer modal -->
-<div id="form-sample-modal" class="modal hidden">
+<div id="form-sample-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-form-sample-close></div>
   <div class="modal__panel form-sample-modal">
     <div class="modal__head">
       <h3 id="form-sample-title">様式サンプル</h3>
-      <button type="button" class="modal__close" data-form-sample-close>×</button>
+      <button type="button" class="modal__close" aria-label="閉じる" data-form-sample-close>×</button>
     </div>
     <div class="form-sample-body">
       <aside class="form-sample-meta">
@@ -1364,12 +1369,12 @@
 </div>
 
 <!-- Help / Manual modal -->
-<div id="help-modal" class="modal hidden">
+<div id="help-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop" data-help-close></div>
   <div class="modal__panel help-modal">
     <div class="modal__head">
       <h3>❓ ヘルプ / マニュアル</h3>
-      <button type="button" class="modal__close" data-help-close>×</button>
+      <button type="button" class="modal__close" aria-label="閉じる" data-help-close>×</button>
     </div>
     <div class="help-body">
       <aside class="help-nav">
@@ -1382,12 +1387,12 @@
 </div>
 
 <!-- Certificate import modal -->
-<div id="cert-modal" class="modal hidden">
+<div id="cert-modal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal__backdrop"></div>
   <div class="modal__panel">
     <div class="modal__head">
       <h3>車検証 / 輸出抹消仮登録証明書の読み取り結果</h3>
-      <button type="button" class="modal__close" id="btn-cert-close">×</button>
+      <button type="button" class="modal__close" aria-label="閉じる" id="btn-cert-close">×</button>
     </div>
     <div id="cert-progress" class="cert-progress"></div>
     <div id="cert-results" class="cert-results hidden">
