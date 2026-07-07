@@ -139,6 +139,33 @@ Authentication → Email Templates → 「Invite user」テンプレートを
 - **AP Holder**: 自分が ap_holder（案件 or 書類 or 履歴）の案件のみ
 - 原価・他社の案件・社内管理画面は一切見えません（RLSでサーバー側強制）
 
+---
+
+# Step 4: 公開ショップ（マレーシア顧客向け購入サイト）
+
+在庫車両を `https://export-doc-manager.vercel.app/shop` で一般公開し、
+購入申込を受け付ける機能です。
+
+## A. SQL を実行
+
+SQL Editor で `supabase/migrations/004_shop.sql` を実行してください。
+（shop_listings / shop_inquiries テーブルと公開用ビューが作成されます）
+
+## B. 使い方
+
+1. 管理画面にログイン → 「🛒 ショップ管理」タブ
+2. 掲載する案件を選択 → 英語タイトル・価格・紹介文を入力 → 「公開中」で保存
+3. 公開サイト `/shop` に表示される（写真・スペック・価格のみ。原価やシャシ番号などの社内情報は公開されません）
+4. 顧客が購入申込 → 「購入申込・問い合わせ」欄に表示
+5. 「Buyer登録+招待」ボタン → Buyer登録 → 既存のポータル招待メールを送信
+6. 以後、その顧客はポータルで自分の案件の進捗を追跡できます
+
+## セキュリティ設計
+
+- 公開されるのは `shop_catalog` / `shop_listing_photos` ビューの厳選カラムのみ
+- 未ログイン客ができる書き込みは `shop_inquiries` への INSERT だけ（読み返し不可）
+- 掲載・申込対応の操作は editor 以上のスタッフのみ（RLSで強制）
+
 ## トラブルシューティング（Step 3）
 
 | 症状 | 対処 |

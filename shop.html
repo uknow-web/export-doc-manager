@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KMT Export — Quality Used Vehicles from Japan</title>
+<meta name="description" content="Japanese used cars and motorcycles for export to Malaysia. Inspected stock, transparent pricing, full export documentation handled by KMT Corporation.">
+<link rel="stylesheet" href="css/shop.css?v=1">
+</head>
+<body>
+
+<header class="shop-header">
+  <a class="shop-header__logo" href="/shop">🚢 KMT EXPORT</a>
+  <div class="shop-header__tag">Direct from Japan<br>to Malaysia</div>
+</header>
+
+<section class="shop-hero" id="shop-hero">
+  <h1>Quality Used Vehicles from Japan</h1>
+  <p>Every vehicle is inspected in Japan and shipped with complete export
+     documentation. Prices include our full export support — from deregistration
+     to shipping to Port Klang.</p>
+</section>
+
+<main class="shop-main">
+
+  <!-- ===== Catalog view ===== -->
+  <div id="shop-catalog-view">
+    <div class="shop-filters" id="shop-filters">
+      <button type="button" class="shop-chip shop-chip--active" data-cat="all">All</button>
+      <button type="button" class="shop-chip" data-cat="car">🚗 Cars</button>
+      <button type="button" class="shop-chip" data-cat="bike">🏍 Motorcycles</button>
+      <input type="search" id="shop-search" class="shop-search" placeholder="Search maker / model…" aria-label="Search vehicles">
+    </div>
+    <div id="shop-grid" class="shop-grid" aria-live="polite">
+      <div class="shop-loading">Loading vehicles…</div>
+    </div>
+  </div>
+
+  <!-- ===== Detail view ===== -->
+  <div id="shop-detail-view" class="hidden">
+    <button type="button" class="shop-back" id="shop-back">← Back to all vehicles</button>
+    <div class="shop-detail">
+      <div>
+        <div class="shop-gallery__main"><img id="shop-photo-main" alt="Vehicle photo"></div>
+        <div class="shop-gallery__thumbs" id="shop-photo-thumbs"></div>
+      </div>
+      <div class="shop-panel" id="shop-detail-panel"></div>
+    </div>
+  </div>
+</main>
+
+<!-- ===== Inquiry / purchase application modal ===== -->
+<div id="shop-inquiry-modal" class="shop-modal hidden" role="dialog" aria-modal="true">
+  <div class="shop-modal__backdrop" data-close-inquiry></div>
+  <div class="shop-modal__panel">
+    <button type="button" class="shop-modal__close" data-close-inquiry aria-label="Close">×</button>
+    <h2 id="shop-inquiry-title">Purchase Application</h2>
+    <p class="shop-modal__sub" id="shop-inquiry-sub"></p>
+
+    <form id="shop-inquiry-form" class="shop-form">
+      <label class="req">Your Name
+        <input name="customer_name" required maxlength="200" autocomplete="name">
+      </label>
+      <label class="req">Email
+        <input name="email" type="email" required maxlength="320" autocomplete="email">
+      </label>
+      <label>Phone / WhatsApp
+        <input name="phone" maxlength="50" autocomplete="tel" placeholder="+60 …">
+      </label>
+      <label>Country
+        <select name="country">
+          <option value="Malaysia" selected>Malaysia</option>
+          <option value="Singapore">Singapore</option>
+          <option value="Thailand">Thailand</option>
+          <option value="Other">Other</option>
+        </select>
+      </label>
+      <label>Message
+        <textarea name="message" rows="4" maxlength="4000"
+          placeholder="Questions, requested delivery timing, etc."></textarea>
+      </label>
+      <!-- Honeypot anti-spam field: must stay empty -->
+      <label class="shop-hp" aria-hidden="true">Company
+        <input name="company_website" tabindex="-1" autocomplete="off">
+      </label>
+      <div id="shop-inquiry-error" class="shop-form-error hidden"></div>
+      <button type="submit" class="shop-cta" id="shop-inquiry-submit">Send Application</button>
+      <p style="font-size:11px;color:#6b7280;margin:2px 0 0">
+        No payment is taken on this site. Our staff will contact you by email
+        with the invoice and bank transfer details.
+      </p>
+    </form>
+
+    <div id="shop-inquiry-done" class="shop-form-success hidden">
+      ✅ <strong>Thank you! Your application has been received.</strong><br>
+      Our export team will contact you by email within 1–2 business days with
+      availability confirmation and payment instructions.
+    </div>
+  </div>
+</div>
+
+<footer class="shop-footer">
+  <div class="shop-footer__brand">KMT Corporation</div>
+  <div>Kyoto, Japan — Vehicle Export Specialists</div>
+  <div id="shop-footer-contact"></div>
+</footer>
+
+<script src="vendor/supabase.js"></script>
+<script type="module" src="js/shop.js"></script>
+</body>
+</html>

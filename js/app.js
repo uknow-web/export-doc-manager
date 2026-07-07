@@ -27,6 +27,7 @@ import {
   progressLabel, paymentLabel, progressColor, paymentColor,
   suggestProgressFromDocs,
 } from './status.js';
+import { setupShopAdmin, renderShopAdmin } from './shop-admin.js';
 import { renderSalesConfirmation } from './docs/sales-confirmation.js';
 import { renderInvoice } from './docs/invoice.js';
 import { renderShippingInstruction } from './docs/shipping-instruction.js';
@@ -150,6 +151,17 @@ const DOC_TYPES = [
   setupDeregGuide();
   setupFormSampleModal();
   setupPortalDocPreview();
+  // ショップ管理はクラウドモードのスタッフのみ（RLSが実体を守る）
+  setupShopAdmin({
+    toast,
+    saveParty,
+    openInviteDialog,
+    canEdit: () => canEdit(getCurrentUser()),
+    renderParties,
+  });
+  if (isCloudAuthed() && !['buyer', 'ap_holder'].includes(getCurrentUser()?.role)) {
+    document.getElementById('tab-btn-shop')?.classList.remove('hidden');
+  }
   renderCases();
   renderParties();
   renderVehicleModels();
@@ -694,6 +706,7 @@ function switchTab(name) {
   if (name === 'buyer-portal') renderBuyerPortalSelector();
   if (name === 'ap-portal')    renderApPortalSelector();
   if (name === 'dereg-guide')  renderDeregGuide();
+  if (name === 'shop')         renderShopAdmin();
   if (name === 'editor')      { populateSellerSelect(); populateVehicleModelSelect(); populateNotifyPartySelect(); populatePrimaryBuyerSelect(); populateApHolderSelect(); }
 }
 

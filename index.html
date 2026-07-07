@@ -144,6 +144,7 @@
   <button class="tab" data-tab="preview">書類プレビュー</button>
   <button class="tab admin-only" data-tab="buyer-portal">Buyerポータル</button>
   <button class="tab admin-only" data-tab="ap-portal">AP Holderポータル</button>
+  <button class="tab hidden" id="tab-btn-shop" data-tab="shop">🛒 ショップ管理</button>
   <button class="tab" data-tab="settings">設定</button>
 </nav>
 
@@ -884,6 +885,60 @@
     </div>
 
     <div id="ap-portal-content" class="ap-portal-wrap"></div>
+  </section>
+
+  <!-- =========================  SHOP ADMIN  ========================= -->
+  <section id="tab-shop" class="tab-pane">
+    <div class="panel">
+      <h2>🛒 掲載管理（公開ショップ）</h2>
+      <p class="hint">
+        案件を選んで掲載すると、公開サイト <a href="/shop" target="_blank" rel="noopener">/shop</a>
+        にマレーシアの顧客向けに表示されます。原価・Buyer情報・シャシ番号などの
+        社内情報は公開されません（写真・車両スペック・掲載価格のみ）。
+      </p>
+      <div id="shop-listing-editor" class="panel hidden" style="background:var(--gray-50)">
+        <h3 id="shop-listing-editor-title">掲載を編集</h3>
+        <form id="form-shop-listing" class="form-grid">
+          <input type="hidden" name="listing_id">
+          <input type="hidden" name="case_id">
+          <label>公開状態
+            <select name="status">
+              <option value="draft">下書き（非公開）</option>
+              <option value="published">公開中</option>
+              <option value="reserved">商談中（RESERVED表示）</option>
+              <option value="sold">成約済み（SOLD表示）</option>
+            </select>
+          </label>
+          <label>掲載タイトル（英語）<input name="title_en" placeholder="2024 TOYOTA ALPHARD Z" required></label>
+          <label>価格 <input name="price_amount" type="number" min="0" step="1" placeholder="45000"></label>
+          <label>通貨
+            <select name="price_currency">
+              <option value="USD">USD ($)</option>
+              <option value="JPY">JPY (¥)</option>
+              <option value="MYR">MYR (RM)</option>
+            </select>
+          </label>
+          <label class="span-2">価格の注記（英語）<input name="price_note_en" placeholder="CIF Port Klang"></label>
+          <label class="span-2">紹介文（英語）
+            <textarea name="description_en" rows="4" placeholder="One owner, non-smoker, fully serviced at Toyota dealer…"></textarea>
+          </label>
+          <div class="form-actions span-2">
+            <button type="submit" class="btn btn--primary">保存</button>
+            <button type="button" class="btn btn--ghost" id="btn-shop-listing-cancel">キャンセル</button>
+          </div>
+        </form>
+      </div>
+      <div id="shop-admin-listings"><p class="hint">読み込み中…</p></div>
+    </div>
+
+    <div class="panel">
+      <h2>📥 購入申込・問い合わせ <span id="shop-inquiry-count" style="color:var(--c-danger);font-size:13px"></span></h2>
+      <p class="hint">
+        公開サイトから届いた申込です。「Buyer登録+招待」を押すと、その顧客が
+        Buyer として登録され、既存のポータル招待メールを送信できます。
+      </p>
+      <div id="shop-admin-inquiries"><p class="hint">読み込み中…</p></div>
+    </div>
   </section>
 
   <!-- =========================  SETTINGS  ========================= -->
